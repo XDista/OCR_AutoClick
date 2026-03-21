@@ -1,0 +1,99 @@
+{
+    "TASK1": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "AllTaskFinished_Working.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK2": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            40,
+                            150
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK3": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "NoWorking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "stop",
+                        "params": []
+                    }
+                ]
+            }
+        ]
+    }
+}

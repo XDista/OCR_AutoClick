@@ -1,0 +1,297 @@
+{
+    "TASK1": {
+        "ignore_occlusion": true,
+        "ref_images": [
+            {
+                "image": "AllTaskFinished_Working.png",
+                "similarity_threshold": 0.9,
+                "match_times": 1,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell am force-stop com.bilibili.azurlane"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK2": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            40,
+                            150
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK3": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "NoWorking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            10.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK4": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "AllTaskFinished_Working.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK5": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            40,
+                            320
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK6": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "NoWorking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            10.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK7": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "AllTaskFinished_Working.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK8": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            40,
+                            215
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK9": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "NoWorking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "click",
+                        "params": [
+                            545,
+                            90
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "stop",
+                        "params": []
+                    }
+                ]
+            }
+        ]
+    }
+}

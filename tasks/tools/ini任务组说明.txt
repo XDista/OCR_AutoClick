@@ -1,0 +1,26 @@
+
+使用F9+F10控制任务组的 运行/停止
+例如default.ini：
+[TASK1] 						#对应第 1 个子任务
+ref_image = button.png		#识别的参考图为refs文件夹下的button.png,不区分大小写，支持使用子文件夹
+similarity_threshold = 0.9		#相似度，大于这个值即视为匹配成功
+ignore_occlusion = False		#忽略匹配度，直接视为匹配成功，但参考图必须存在，否则报错
+actions = 					#动作列表
+		click:100,200;		#点击相对坐标x=100，y=200的位置
+		sleep:1.0;			#运行到这里暂停1.0秒
+
+[TASK2] 						#对应第 2 个子任务
+ref_image = close_button.png
+similarity_threshold = 0.85
+ignore_occlusion = False
+actions = 
+		click:100,200;
+		sleep:1.0;
+		stop;							#停止任务组
+#		shutdown:shutdown /s /t 3600;	#3600秒后关闭计算机；冒号后支持完整cmd指令，不加冒号后内容则默认延迟60秒关机
+#		goto_task:1;						#跳转至任务1
+#		taskcall:Hello World;				#通过系统通知发送消息：”Hello world“
+#		swipe:(50, 300),(450, 300),(1.5);  	# 1.5秒内从(50,300)拖动到(450,300)	
+#		press:key1,key2, ...;				#只有一个key时只按下对应key，多个key时为按下顺序从左到右的组合键
+#		adbcall:;							#支持完整adb命令，要先确认adb环境
+#		serial_adbcall:;					#支持完整adb命令，支持从config读取gui中填入的serial

@@ -1,0 +1,427 @@
+{
+    "TASK1": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\mainline16_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 625 185"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 625 185"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK2": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\in_map_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            2.0
+                        ]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [
+                            3
+                        ]
+                    }
+                ]
+            },
+            {
+                "image": "16-4开荒刷绿海\\mainline16_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            2.0
+                        ]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [
+                            1
+                        ]
+                    }
+
+                ]
+
+            }
+        ]
+    },
+    "TASK3": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\in_map_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 470 205"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            20.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            100.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK4": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\in_map_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 700 205"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            20.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },                    
+                    {
+                        "type": "sleep",
+                        "params": [
+                            100.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK5": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\in_map_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 820 133"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            20.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            100.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK6": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\in_map_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 933 76"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            20.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },                   
+                    {
+                        "type": "sleep",
+                        "params": [
+                            100.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK7": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\in_map_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1025 680"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            0.5
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input swipe 1080 160 276 686 1000"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            0.5
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input swipe 1080 160 276 686 1000"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            0.5
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 500 460"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            20.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1250 695"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            100.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1202 187"
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1202 187"
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK8":{
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "16-4开荒刷绿海\\mainline16_adb.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            2.0
+                        ]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [
+                            1
+                        ]
+                    }
+
+                ]
+            },
+            {
+                    "image": "16-4开荒刷绿海\\result.png",
+                    "similarity_threshold": 0.9,
+                    "match_times": 2,
+                    "actions": [
+                        {
+                            "type": "sleep",
+                            "params": [
+                                2.0
+                            ]
+                        },
+                        {
+                            "type": "serial_adbcall",
+                            "params": [
+                                "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "serial_adbcall",
+                            "params": [
+                                "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "goto_task",
+                            "params": [
+                                1
+                            ]
+                        }
+                    ]
+            }
+        ]
+    }
+}

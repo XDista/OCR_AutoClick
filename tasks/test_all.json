@@ -1,0 +1,177 @@
+{
+    "TASK1": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [
+                            100,
+                            200
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "shutdown",
+                        "params": [
+                            "shutdown /s /t 36000"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "shutdown",
+                        "params": [
+                            "shutdown /a"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "taskcall",
+                        "params": [
+                            "Hello World"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "swipe",
+                        "params": [
+                            50,
+                            300,
+                            450,
+                            300,
+                            1.5
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "press",
+                        "params": [
+                            "win"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "press",
+                        "params": [
+                            "win"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "adbcall",
+                        "params": [
+                            "adb version"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell echo \"ADB test success\""
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            2.0
+                        ]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [
+                            3
+                        ]
+                    }
+                ]
+            },
+            {
+                "image": "working.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "taskcall",
+                        "params": [
+                            "Hello World"
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK2": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 1,
+                "actions": [
+                    {
+                        "type": "stop",
+                        "params": []
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK3": {
+        "ref_images": [
+            {
+                "image": "noworking.png",
+                "similarity_threshold": 0.9,
+                "match_times": 1,
+                "actions": [
+                    {
+                        "type": "stop",
+                        "params": []
+                    }
+                ]
+            }
+        ]
+    }
+}

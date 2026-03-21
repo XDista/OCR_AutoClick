@@ -1,0 +1,54 @@
+{
+    "TASK1": {
+        "ref_images": [
+            {
+                "image": "button.png",
+                "similarity_threshold": 0.9,
+                "match_times": 1,
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [
+                            100,
+                            200
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "TASK2": {
+        "ref_images": [
+            {
+                "image": "close_button.png",
+                "similarity_threshold": 0.85,
+                "match_times": 1,
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [
+                            100,
+                            200
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "stop",
+                        "params": []
+                    }
+                ]
+            }
+        ]
+    }
+}
