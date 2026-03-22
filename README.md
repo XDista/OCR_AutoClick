@@ -12,7 +12,7 @@ A：	1.下载解压OCR_AutoClick (版本号).zip文件
 	  2.按照教程视频与install文件夹里的指引，安装必要环境与依赖库
 		请确认确实有需要再下载install.zip,这个压缩包储存的是 “所有” 可能需要用到的工具
 	  3.双击main.pyw即可打开脚本GUI
-    4.配合Alas（https://github.com/LmeSzinc/AzurLaneAutoScript）使用效果更佳
+    4.配合Alas（ https://github.com/LmeSzinc/AzurLaneAutoScript ） 使用效果更佳
 
 Q：	为什么用adb和win32gui两个截图识别模式，识别出来的匹配率不一样？
 A： adb截图和win32gui截图对应的图片色彩是有差异的，可以用附带的adb截图工具和Windows自带截图截取同一个部位进行对比以验证这一结论
