@@ -70,7 +70,38 @@
                 ]
             },
             {
-                    "image": "16-4开荒刷绿海\\result.png",
+                "image": "16-4开荒刷绿海\\16-4_alas_daemon_freeze_dockfull.png",
+                "similarity_threshold": 0.9,
+                "match_times": 3,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            5.0
+                        ]
+                    },
+                    {
+                        "type": "serial_adbcall",
+                        "params": [
+                            "adb shell input tap 1202 187"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            10.0
+                        ]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [
+                            2
+                        ]
+                    }
+                ]
+            },
+            {
+                    "image": "16-4开荒刷绿海\\result_done.png",
                     "similarity_threshold": 0.9,
                     "match_times": 2,
                     "actions": [
@@ -90,6 +121,86 @@
                             "type": "serial_adbcall",
                             "params": [
                                 "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "sleep",
+                            "params": [
+                                5.0
+                            ]
+                        },
+                        {
+                            "type": "goto_task",
+                            "params": [
+                                1
+                            ]
+                        }
+                    ]
+            },
+            {
+                    "image": "16-4开荒刷绿海\\result_midout.png",
+                    "similarity_threshold": 0.9,
+                    "match_times": 2,
+                    "actions": [
+                        {
+                            "type": "sleep",
+                            "params": [
+                                2.0
+                            ]
+                        },
+                        {
+                            "type": "serial_adbcall",
+                            "params": [
+                                "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "serial_adbcall",
+                            "params": [
+                                "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "sleep",
+                            "params": [
+                                5.0
+                            ]
+                        },
+                        {
+                            "type": "goto_task",
+                            "params": [
+                                1
+                            ]
+                        }
+                    ]
+            },
+            {
+                    "image": "16-4开荒刷绿海\\16-4_alas_daemon_freeze.png",
+                    "similarity_threshold": 0.9,
+                    "match_times": 2,
+                    "actions": [
+                        {
+                            "type": "sleep",
+                            "params": [
+                                2.0
+                            ]
+                        },
+                        {
+                            "type": "serial_adbcall",
+                            "params": [
+                                "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "serial_adbcall",
+                            "params": [
+                                "adb shell input tap 1202 187"
+                            ]
+                        },
+                        {
+                            "type": "sleep",
+                            "params": [
+                                5.0
                             ]
                         },
                         {
