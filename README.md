@@ -9,7 +9,7 @@ A：因为alas脚本虽然强大，但有时更新不够及时，不能很好地
 
 Q：如何使用？
 A：	1.下载解压OCR_AutoClick (版本号).zip文件
-	  2.按照教程视频与install文件夹里的指引，安装必要环境与依赖库
+	  2.按照教程视频与install文件夹里的指引，安装必要环境与依赖库/n
 		请确认确实有需要再下载install.zip,这个压缩包储存的是 “所有” 可能需要用到的工具
 	  3.双击main.pyw即可打开脚本GUI
     4.配合Alas（ https://github.com/LmeSzinc/AzurLaneAutoScript ） 使用效果更佳
