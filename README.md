@@ -30,11 +30,11 @@ A：因为alas脚本虽然强大，但有时更新不够及时，不能很好地
 Q：如何使用？
 
 A：	
-1.下载解压OCR_AutoClick (版本号).zip文件
+1.下载解压OCR_AutoClick (版本号).zip———Source code(zip)文件
 
 2.按照install文件夹内的安装说明，安装必要环境与依赖库
 	  
- - 请确认确实有需要再下载install.zip,这个压缩包储存的是 “所有” 可能需要用到的工具
+ - 请确认确实有需要再下载python_c++_install.zip,这个压缩包储存的是 “所有” 可能需要用到的环境安装包
 		
 3.双击main.pyw即可打开脚本GUI
 	  
