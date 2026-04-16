@@ -5,6 +5,7 @@ import threading
 import datetime
 import cv2
 import json
+import webbrowser
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog, filedialog
@@ -31,8 +32,16 @@ try:
 except:
     pass
 
-# 基础路径与配置初始化
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 基础路径与配置初始化 - 兼容.py与.exe
+# 当作为.py文件运行时，使用脚本所在目录
+# 当作为.exe文件运行时，使用当前工作目录（exe所在目录）
+if getattr(sys, 'frozen', False):
+    # 打包为exe的情况
+    BASE_DIR = os.getcwd()
+else:
+    # 作为.py文件运行的情况
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 MAIN_CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 REFS_DIR = os.path.join(BASE_DIR, "refs")
 TASKS_DIR = os.path.join(BASE_DIR, "tasks")
@@ -2056,6 +2065,9 @@ class AutoClickGUI:
         
         self.scroll_btn = ttk.Button(control_frame, text="日志自动滚动：开", command=self._toggle_auto_scroll)
         self.scroll_btn.pack(side=tk.RIGHT, padx=5)
+
+        self.scroll_btn = ttk.Button(control_frame, text="关于", command=self._show_about_dialog)
+        self.scroll_btn.pack(side=tk.RIGHT, padx=5)
         
         # 日志区
         log_frame = ttk.LabelFrame(self.root, text="运行日志", padding="10")
@@ -2064,8 +2076,6 @@ class AutoClickGUI:
         self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, state=tk.DISABLED) 
         self.log_text.pack(fill=tk.BOTH, expand=True)
         
-        # 绑定下拉列表选择事件
-        #self.window_combobox.bind("<<ComboboxSelected>>", self._on_window_select)
     
     # 新增打开坐标拾取脚本的方法
     def _open_screenxy(self):
@@ -2501,6 +2511,67 @@ class AutoClickGUI:
         self.log_text.config(state=tk.DISABLED)  # 恢复不可编辑状态
         self.log("📝 日志已清除！")  # 记录清除操作
     
+    def _show_about_dialog(self):
+        """显示关于对话框"""
+        about_window = tk.Toplevel(self.root)
+        about_window.title("关于")
+        about_window.geometry("500x400")
+        about_window.resizable(False, False)
+        
+        # 居中显示
+        window_width = 480
+        window_height = 390
+        screen_width = about_window.winfo_screenwidth()
+        screen_height = about_window.winfo_screenheight()
+        x = (screen_width // 2) - (window_width // 2)
+        y = (screen_height // 2) - (window_height // 2)
+        about_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        # 创建内容框架
+        content_frame = ttk.Frame(about_window, padding=20)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 标题
+        ttk.Label(content_frame, text="OCR自动点击工具", font=("微软雅黑", 16, "bold")).pack(pady=10)
+        
+        # 版本信息
+        #ttk.Label(content_frame, text="版本: 1.4.1").pack(pady=5)
+        
+        # 功能描述
+        # 创建描述文本
+        description = "OCR自动点击工具 - 基于图像识别的自动化操作工具\n\n"
+        description += " Copyright (C) 2026 XDista\n\n"
+        description += "本程序绝对无任何保证；详情见GNU GPL V3 许可证。\n\n"
+        
+        # 创建普通文本标签，设置为居中对齐
+        ttk.Label(content_frame, text=description, justify=tk.CENTER).pack(pady=10)
+        
+        # 创建包含GitHub链接的Frame，设置为居中
+        github_frame = ttk.Frame(content_frame)
+        github_frame.pack(pady=(0, 10), anchor='center')
+        
+        # 创建"项目GitHub主页："标签，设置为居中
+        ttk.Label(github_frame, text="项目GitHub主页：").pack(side='left', anchor='center')
+        
+        # 创建超链接标签，添加下划线，设置为居中
+        link_label = ttk.Label(github_frame, text="https://github.com/XDista/OCR_AutoClick", 
+                             foreground="blue", cursor="hand2", font=('TkDefaultFont', 9, 'underline'))
+        link_label.pack(side='left', anchor='center')
+        
+        def open_link(event):
+            webbrowser.open_new("https://github.com/XDista/OCR_AutoClick")
+        
+        link_label.bind("<Button-1>", open_link)
+        
+        # 创建剩余描述文本，设置为居中
+        ttk.Label(content_frame, text="本软件为开源免费项目，如果你以任何付费方式获得此软件，请立即尝试退款！", 
+                 justify=tk.CENTER).pack(pady=(5, 10))
+        #其实好像不是OCR，而是IR（Image Recognition）
+        #算了，问起来就说“OCR是工具的设计目标与追求，实际功能请以成品为准”
+
+        # 关闭按钮
+        ttk.Button(content_frame, text="关闭", command=about_window.destroy).pack(pady=10)
+
     # 修改log方法
     def log(self, msg):
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
