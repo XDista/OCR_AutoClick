@@ -2066,8 +2066,8 @@ class AutoClickGUI:
         self.scroll_btn = ttk.Button(control_frame, text="日志自动滚动：开", command=self._toggle_auto_scroll)
         self.scroll_btn.pack(side=tk.RIGHT, padx=5)
 
-        self.scroll_btn = ttk.Button(control_frame, text="关于", command=self._show_about_dialog)
-        self.scroll_btn.pack(side=tk.RIGHT, padx=5)
+        self.about_btn = ttk.Button(control_frame, text="关于", command=self._show_about_dialog)
+        self.about_btn.pack(side=tk.RIGHT, padx=5)
         
         # 日志区
         log_frame = ttk.LabelFrame(self.root, text="运行日志", padding="10")
