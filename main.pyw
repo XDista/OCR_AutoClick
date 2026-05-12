@@ -155,6 +155,7 @@ def init_task_config(task_group_name):
                     "image": "button1.png",
                     "similarity_threshold": 0.9,
                     "match_times": 1,
+                    "run_on_match": True,
                     "actions": [
                         {"type": "click", "params": [100, 200]},
                         {"type": "sleep", "params": [1.0]}
@@ -164,6 +165,7 @@ def init_task_config(task_group_name):
                     "image": "button2.png",
                     "similarity_threshold": 0.9,
                     "match_times": 2,
+                    "run_on_match": True,
                     "actions": [
                         {
                             "type": "click",
@@ -183,6 +185,7 @@ def init_task_config(task_group_name):
                     "image": "close_button.png",
                     "similarity_threshold": 0.85,
                     "match_times": 1,
+                    "run_on_match": True,
                     "actions": [
                         {"type": "click", "params": [100, 200]},
                         {"type": "sleep", "params": [1.0]},
@@ -358,16 +361,63 @@ def execute_action(window, action_type, params, stop_flag=False):
         if not keys:
             return "press动作参数不足（需指定至少1个按键名称，如enter、ctrl,a）"
         
+        # 读取点击模式配置
+        main_config = configparser.ConfigParser()
+        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+        click_mode = main_config["GENERAL"]["click_mode"]
+        
         try:
-            if len(keys) == 1:
-                # 单键：模拟单次按下
-                key = keys[0]
-                pyautogui.press(key)
-                return f"执行键盘单键按下：{key}"
+            if click_mode == "sendmessage" and window:
+                # SendMessage模式：向目标窗口发送键盘消息
+                hwnd = window._hWnd
+                
+                # 键盘虚拟键码映射
+                key_map = {
+                    'enter': 0x0D, 'return': 0x0D,
+                    'tab': 0x09, 'space': 0x20,
+                    'backspace': 0x08, 'delete': 0x2E,
+                    'ctrl': 0x11, 'shift': 0x10, 'alt': 0x12,
+                    'esc': 0x1B, 'capslock': 0x14,
+                    'f1': 0x70, 'f2': 0x71, 'f3': 0x72, 'f4': 0x73,
+                    'f5': 0x74, 'f6': 0x75, 'f7': 0x76, 'f8': 0x77,
+                    'f9': 0x78, 'f10': 0x79, 'f11': 0x7A, 'f12': 0x7B,
+                    'up': 0x26, 'down': 0x28, 'left': 0x25, 'right': 0x27,
+                    'home': 0x24, 'end': 0x23, 'pageup': 0x21, 'pagedown': 0x22,
+                    'insert': 0x2D
+                }
+                
+                # 字母和数字映射
+                for c in 'abcdefghijklmnopqrstuvwxyz':
+                    key_map[c] = ord(c.upper())
+                for c in '0123456789':
+                    key_map[c] = ord(c)
+                
+                # 发送按键消息
+                for key in keys:
+                    vk_code = key_map.get(key.lower())
+                    if vk_code is None:
+                        return f"SendMessage模式不支持的按键：{key}"
+                    
+                    # 发送按键按下消息
+                    win32gui.SendMessage(hwnd, win32con.WM_KEYDOWN, vk_code, 0)
+                    time.sleep(0.05)
+                    # 发送按键松开消息
+                    win32gui.SendMessage(hwnd, win32con.WM_KEYUP, vk_code, 0)
+                
+                return f"执行键盘消息发送（SendMessage模式）：{'+' .join(keys)}"
+            
             else:
-                # 多键：模拟组合键（如ctrl+a、shift+alt+d）
-                pyautogui.hotkey(*keys)
-                return f"执行键盘组合键按下：{'+' .join(keys)}"
+                # PyAutoGUI模式：物理按键模拟
+                if len(keys) == 1:
+                    # 单键：模拟单次按下
+                    key = keys[0]
+                    pyautogui.press(key)
+                    return f"执行键盘单键按下：{key}"
+                else:
+                    # 多键：模拟组合键（如ctrl+a、shift+alt+d）
+                    pyautogui.hotkey(*keys)
+                    return f"执行键盘组合键按下：{'+' .join(keys)}"
+                    
         except ValueError as e:
             # 捕获无效按键名称的异常（明确指出哪个按键无效）
             invalid_keys = []
@@ -841,6 +891,107 @@ def capture_window_memory(hwnd):
         except Exception as release_e:
             app.log(f"win32memory资源释放警告：{str(release_e)}")
 
+# ========== PrintWindow截图（支持被遮挡窗口+硬件加速应用） ==========
+def capture_window_printwindow(hwnd):
+    """
+    使用PrintWindow API截图
+    支持场景：
+    - ✅ 窗口被遮挡时正常捕获
+    - ✅ 硬件加速应用（Firefox/Chrome/游戏/模拟器）
+    - ✅ 静态画面识别
+    :param hwnd: 窗口句柄
+    :return: OpenCV BGR图像 / None（失败）
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        # 获取窗口客户区信息
+        client_left, client_top, client_width, client_height = get_window_client_rect(hwnd)
+        if client_width <= 0 or client_height <= 0:
+            app.log(f"PrintWindow截图失败：客户区尺寸无效")
+            return None
+
+        # 创建兼容DC
+        hdc_window = win32gui.GetDC(hwnd)
+        hdc_mem = win32ui.CreateDCFromHandle(hdc_window)
+        mem_dc = hdc_mem.CreateCompatibleDC()
+        
+        # 创建位图
+        bmp = win32ui.CreateBitmap()
+        bmp.CreateCompatibleBitmap(hdc_mem, client_width, client_height)
+        mem_dc.SelectObject(bmp)
+        
+        # 加载user32.dll
+        user32 = ctypes.WinDLL('user32.dll')
+        
+        # 定义LRESULT类型（LRESULT在wintypes中不是标准属性，需要手动定义）
+        LRESULT = wintypes.LONG  # LRESULT本质上是LONG_PTR，这里简化为LONG
+        
+        # 设置函数参数类型
+        user32.PrintWindow.argtypes = [
+            wintypes.HWND,
+            wintypes.HDC,
+            wintypes.UINT
+        ]
+        user32.PrintWindow.restype = wintypes.BOOL
+        
+        user32.SendMessageW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM
+        ]
+        user32.SendMessageW.restype = LRESULT
+        
+        # 关键标志定义
+        PW_CLIENTONLY = 0x00000001          # 仅捕获客户区
+        PW_RENDERFULLCONTENT = 0x00000002   # Windows 8+: 强制合成完整内容（包括GPU渲染）
+        WM_PAINT = 0x000F                    # 强制窗口刷新
+        WM_PRINT = 0x0317                    # 打印消息
+        PRF_CLIENT = 0x00000004              # 绘制客户区
+        
+        # ========== 核心增强逻辑 ==========
+        
+        # 1. 发送WM_PAINT强制窗口刷新内部缓冲区
+        user32.SendMessageW(hwnd, WM_PAINT, 0, 0)
+        
+        # 2. 发送WM_PRINT消息让窗口准备绘制内容
+        user32.SendMessageW(hwnd, WM_PRINT, mem_dc.GetSafeHdc(), PRF_CLIENT)
+        
+        # 3. 使用PW_RENDERFULLCONTENT标志调用PrintWindow
+        # 此标志会强制系统合成窗口的完整内容，包括GPU加速渲染的部分
+        flags = PW_CLIENTONLY | PW_RENDERFULLCONTENT
+        result = user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), flags)
+        
+        if not result:
+            app.log("PrintWindow截图失败：API调用失败")
+            # 清理资源
+            win32gui.DeleteObject(bmp.GetHandle())
+            mem_dc.DeleteDC()
+            hdc_mem.DeleteDC()
+            win32gui.ReleaseDC(hwnd, hdc_window)
+            return None
+        
+        # 转换位图为OpenCV格式
+        signed_ints_array = bmp.GetBitmapBits(True)
+        img = np.frombuffer(signed_ints_array, dtype='uint8')
+        img.shape = (client_height, client_width, 4)
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        
+        # 释放资源
+        win32gui.DeleteObject(bmp.GetHandle())
+        mem_dc.DeleteDC()
+        hdc_mem.DeleteDC()
+        win32gui.ReleaseDC(hwnd, hdc_window)
+        
+        app.log(f"PrintWindow截图成功：{client_width}x{client_height}")
+        return img
+        
+    except Exception as e:
+        app.log(f"PrintWindow截图失败：{str(e)}")
+        return None
+
 def capture_window_win32gui(hwnd):
     """
     Win32GUI模式截图（抽离独立函数）：基于pyautogui截取窗口客户区，返回OpenCV BGR格式图像
@@ -920,9 +1071,18 @@ def capture_window(window):
             img = capture_window_memory(hwnd)
             return img
 
+        # ========== PrintWindow截图模式（支持被遮挡窗口+硬件加速应用） ==========
+        elif screenshot_mode == "PrintWindow":
+            if not window or not win32gui.IsWindow(window._hWnd):
+                app.log("PrintWindow截图失败：窗口句柄无效/已关闭")
+                return None
+            hwnd = window._hWnd
+            img = capture_window_printwindow(hwnd)
+            return img
+
         # ========== 无效截图模式处理 ==========
         else:
-            app.log(f"无效的截图模式：{screenshot_mode}（仅支持win32gui/adb/win32memory）")
+            app.log(f"无效的截图模式：{screenshot_mode}（仅支持Win32GUI/PrintWindow/Win32Memory/ADB）")
             return None
     except Exception as e:
         app.log(f"截图失败：{str(e)}")
@@ -1231,8 +1391,10 @@ def worker(app):
                                         threshold = ref_branch.get("similarity_threshold", 0.9)
                                         match_times = ref_branch.get("match_times", 1)
                                         match_times = match_times if match_times >= 1 else 1
+                                        # 新增：读取run_on_match配置，默认正向匹配（向前兼容）
+                                        run_on_match = ref_branch.get("run_on_match", True)
 
-                                        # 初始化当前分支的连续匹配计数器
+                                        # 初始化当前分支的连续匹配/不匹配计数器
                                         branch_key = f"{task_name}_branch{branch_idx}"
                                         if branch_key not in task_continuous_match:
                                             task_continuous_match[branch_key] = 0
@@ -1248,20 +1410,32 @@ def worker(app):
                                             similarity = 0.0
                                             app.log(f"⚠️ 任务[{task_name}]分支{branch_idx}：模板匹配返回值异常")
 
-                                        # 更新连续匹配计数器
-                                        if is_match:
-                                            task_continuous_match[branch_key] += 1
+                                        # 更新连续计数器：正向匹配计数成功次数，反向匹配计数失败次数
+                                        if run_on_match:
+                                            # 正向匹配：匹配成功计数+1，失败重置为0
+                                            if is_match:
+                                                task_continuous_match[branch_key] += 1
+                                            else:
+                                                task_continuous_match[branch_key] = 0
                                         else:
-                                            task_continuous_match[branch_key] = 0
+                                            # 反向匹配：匹配失败计数+1，成功重置为0
+                                            if not is_match:
+                                                task_continuous_match[branch_key] += 1
+                                            else:
+                                                task_continuous_match[branch_key] = 0
 
                                         current_continuous = task_continuous_match[branch_key]
-                                        app.log(f"任务[{task_name}]分支{branch_idx}({ref_branch['image']})：相似度 {similarity:.3f} | 单次匹配: {is_match} | 连续匹配成功次数: {current_continuous}/{match_times}")
+                                        match_type = "正向匹配" if run_on_match else "反向匹配"
+                                        app.log(f"任务[{task_name}]分支{branch_idx}({ref_branch['image']})：{match_type} | 相似度 {similarity:.3f} | 单次匹配: {is_match} | 连续满足次数: {current_continuous}/{match_times}")
 
                                         # 【核心逻辑】第一个达到match_times阈值的分支被选中，立即跳出循环
                                         if current_continuous >= match_times:
                                             matched_branch = ref_branch
                                             matched_branch_idx = branch_idx
-                                            app.log(f"✅ 任务[{task_name}]：分支{branch_idx}({ref_branch['image']})连续匹配成功，已选中此分支")
+                                            if run_on_match:
+                                                app.log(f"✅ 任务[{task_name}]：分支{branch_idx}({ref_branch['image']})连续匹配成功，已选中此分支")
+                                            else:
+                                                app.log(f"✅ 任务[{task_name}]：分支{branch_idx}({ref_branch['image']})连续匹配失败（反向匹配），已选中此分支")
                                             break
 
                                     # 处理分支匹配结果
@@ -1804,14 +1978,14 @@ class AutoClickGUI:
 
           # ---------------------- 新增：点击模式切换下拉列表 ---------------------
         # 放在定时运行配置框的下方（task_frame的row=2）
-        ttk.Label(task_frame, text="点击模式：").grid(row=2, column=0, padx=5, pady=8, sticky=tk.W)
+        ttk.Label(task_frame, text="点击模式：").grid(row=2, column=0, padx=5, pady=8, sticky="w")
         self.click_mode_var = tk.StringVar()
         self.click_mode_combobox = ttk.Combobox(
             task_frame,
             textvariable=self.click_mode_var,
             values=["SendMessage消息点击", "PyAutoGUI硬件点击"],
             state="readonly",
-            width=35  # 加长下拉栏宽度（原15→20）
+            width=35  # 加长下拉栏宽度（原15→35）
         )
         self.click_mode_combobox.grid(row=2, column=1, padx=5, pady=8, sticky=tk.W)
         # 绑定选中事件，实现「选择即更新」
@@ -1823,16 +1997,17 @@ class AutoClickGUI:
         # ========== 新增：截图模式选择（点击模式下一行） ==========
         ttk.Label(task_frame, text="截图模式：").grid(row=6, column=0, padx=5, pady=3, sticky="w")
         self.screenshot_mode_var = tk.StringVar(value=main_config["GENERAL"]["screenshot_mode"])
-        screenshot_mode_combo = ttk.Combobox(task_frame, textvariable=self.screenshot_mode_var, values=["Win32GUI", "ADB","Win32Memory"], state="readonly", width=10)
-        screenshot_mode_combo.grid(row=6, column=1, padx=5, pady=3, sticky="we")
+        screenshot_mode_combo = ttk.Combobox(task_frame, textvariable=self.screenshot_mode_var, 
+            values=["Win32GUI", "PrintWindow", "Win32Memory", "ADB"], state="readonly", width=35)
+        screenshot_mode_combo.grid(row=6, column=1, padx=5, pady=3, sticky="w")
         screenshot_mode_combo.bind("<<ComboboxSelected>>", self.on_screenshot_mode_change)
         # =======================================================
 
         # ========== 新增：ADB设备Serial号配置（截图模式为adb时生效） ==========
         ttk.Label(task_frame, text="ADB设备Serial：").grid(row=7, column=0, padx=5, pady=3, sticky="w")
         self.adb_device_serial_var = tk.StringVar(value=main_config["ADBConfig"]["adb_device_serial"])
-        adb_device_serial_entry = ttk.Entry(task_frame, textvariable=self.adb_device_serial_var, width=15)
-        adb_device_serial_entry.grid(row=7, column=1, padx=5, pady=3, sticky="we")
+        adb_device_serial_entry = ttk.Entry(task_frame, textvariable=self.adb_device_serial_var, width=38)
+        adb_device_serial_entry.grid(row=7, column=1, padx=5, pady=3, sticky="w")
         adb_device_serial_entry.bind("<FocusOut>", self.on_adb_device_serial_change)
         # ====================================================================
         def comfort_confirm():
