@@ -134,9 +134,10 @@
                 ]
             },
             {							#第二个分支
-                "image": "working.png",
+                "image": ["or","target1.png","target2.png","target3.png"],	#多图逻辑处理：and（与）模式下所有输入都为真（匹配）时结果为真，or（或）模式下至少一个输入为真（匹配）时结果为真
                 "similarity_threshold": 0.9,
                 "match_times": 2,
+                "run_on_match": true,		#子任务非门，true为正向逻辑匹配，false为反向逻辑匹配
                 "actions": [
                     {
                         "type": "taskcall",
@@ -180,3 +181,57 @@
         ]
     }
 }
+
+
+/*
+
+脚本中的 and、or 和 run_on_match 可以组合出以下 四种基本逻辑门：
+
+组合逻辑表
+image配置		run_on_match	组合效果		等效逻辑门	触发条件
+
+["and", "A", "B"]	true				AND		AND门		A和B都匹配成功
+["and", "A", "B"]	false			NAND		NAND门		不是A和B都匹配（至少一个不匹配）
+["or", "A", "B"]	true				OR			OR门		A或B匹配成功
+["or", "A", "B"]	false			NOR		NOR门		A和B都不匹配
+详细解释
+1. AND门（与门）
+
+{
+  "image": ["and", "button_ok.png", "button_submit.png"],
+  "run_on_match": true
+}
+触发条件：所有图像都匹配成功
+场景：需要多个按钮同时出现才执行操作
+
+2. NAND门（与非门）
+
+json
+{
+  "image": ["and", "loading.png", "processing.png"],
+  "run_on_match": false
+}
+触发条件：不是所有图像都匹配（至少有一个不匹配）
+场景：等待加载状态消失后执行操作
+
+3. OR门（或门）
+
+json
+{
+  "image": ["or", "button_yes.png", "button_ok.png"],
+  "run_on_match": true
+}
+触发条件：任一图像匹配成功
+场景：多个相似按钮，匹配到任意一个即可
+
+4. NOR门（或非门）
+
+json
+{
+  "image": ["or", "error.png", "warning.png"],
+  "run_on_match": false
+}
+触发条件：所有图像都不匹配
+场景：确认没有任何错误状态后执行操作
+
+*/

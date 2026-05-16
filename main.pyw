@@ -1387,7 +1387,6 @@ def worker(app):
                                     # 核心：遍历所有ref_images，按顺序查找第一个匹配的
                                     for branch_idx, ref_branch in enumerate(ref_images_list):
                                         # 提取当前分支的配置
-                                        ref_path = os.path.join(REFS_DIR, ref_branch["image"])
                                         threshold = ref_branch.get("similarity_threshold", 0.9)
                                         match_times = ref_branch.get("match_times", 1)
                                         match_times = match_times if match_times >= 1 else 1
@@ -1399,16 +1398,84 @@ def worker(app):
                                         if branch_key not in task_continuous_match:
                                             task_continuous_match[branch_key] = 0
 
-                                        # 执行模板匹配
-                                        match_result = template_match(screenshot, ref_path, threshold)
-                                        if len(match_result) == 2:
-                                            is_match, similarity = match_result
-                                        elif len(match_result) == 3:
-                                            is_match, similarity, match_loc = match_result
+                                        # ========== 新增：支持多图像逻辑关系匹配 ==========
+                                        image_config = ref_branch["image"]
+                                        is_match = False
+                                        similarity = 0.0
+                                        
+                                        if isinstance(image_config, str):
+                                            # 原版格式：单个图像
+                                            ref_path = os.path.join(REFS_DIR, image_config)
+                                            match_result = template_match(screenshot, ref_path, threshold)
+                                            if len(match_result) == 2:
+                                                is_match, similarity = match_result
+                                            elif len(match_result) == 3:
+                                                is_match, similarity, match_loc = match_result
+                                            else:
+                                                is_match = False
+                                                similarity = 0.0
+                                                app.log(f"⚠️ 任务[{task_name}]分支{branch_idx}：模板匹配返回值异常")
+                                        elif isinstance(image_config, list) and len(image_config) >= 2:
+                                            # 新增格式：["and", "target1.png", "target2.png"...] 或 ["or", "target1.png", "target2.png"...]
+                                            operator = image_config[0].lower()
+                                            image_list = image_config[1:]
+                                            
+                                            if operator == "and":
+                                                # AND逻辑：所有图像都必须匹配成功
+                                                all_matched = True
+                                                max_sim = 0.0
+                                                unmatched_images = []
+                                                for img_name in image_list:
+                                                    img_ref_path = os.path.join(REFS_DIR, img_name)
+                                                    match_result = template_match(screenshot, img_ref_path, threshold)
+                                                    if len(match_result) >= 2:
+                                                        img_match, img_sim = match_result[0], match_result[1]
+                                                        max_sim = max(max_sim, img_sim)
+                                                        if not img_match:
+                                                            all_matched = False
+                                                            unmatched_images.append(f"{img_name}(相似度:{img_sim:.3f})")
+                                                    else:
+                                                        all_matched = False
+                                                        unmatched_images.append(f"{img_name}(匹配失败)")
+                                                is_match = all_matched
+                                                similarity = max_sim
+                                                if all_matched:
+                                                    app.log(f"任务[{task_name}]分支{branch_idx}：AND逻辑匹配成功 | 所有图像均匹配")
+                                                else:
+                                                    app.log(f"任务[{task_name}]分支{branch_idx}：AND逻辑匹配失败 | 未匹配的图像: {', '.join(unmatched_images)}")
+
+                                            elif operator == "or":
+                                                # OR逻辑：任一图像匹配成功即可
+                                                any_matched = False
+                                                max_sim = 0.0
+                                                matched_images = []
+                                                for img_name in image_list:
+                                                    img_ref_path = os.path.join(REFS_DIR, img_name)
+                                                    match_result = template_match(screenshot, img_ref_path, threshold)
+                                                    if len(match_result) >= 2:
+                                                        img_match, img_sim = match_result[0], match_result[1]
+                                                        max_sim = max(max_sim, img_sim)
+                                                        if img_match:
+                                                            any_matched = True
+                                                            matched_images.append(f"{img_name}(相似度:{img_sim:.3f})")
+                                                    else:
+                                                        pass
+                                                is_match = any_matched
+                                                similarity = max_sim
+                                                if any_matched:
+                                                    app.log(f"任务[{task_name}]分支{branch_idx}：OR逻辑匹配成功 | 匹配的图像: {', '.join(matched_images)}")
+                                                else:
+                                                    app.log(f"任务[{task_name}]分支{branch_idx}：OR逻辑匹配失败 | 所有图像均未匹配")
+
+                                            else:
+                                                app.log(f"⚠️ 任务[{task_name}]分支{branch_idx}：未知逻辑运算符 '{operator}'，仅支持 'and' 和 'or'")
+                                                is_match = False
+                                                similarity = 0.0
                                         else:
+                                            app.log(f"⚠️ 任务[{task_name}]分支{branch_idx}：无效的图像配置格式")
                                             is_match = False
                                             similarity = 0.0
-                                            app.log(f"⚠️ 任务[{task_name}]分支{branch_idx}：模板匹配返回值异常")
+                                        # ========== 多图像逻辑关系匹配结束 ==========
 
                                         # 更新连续计数器：正向匹配计数成功次数，反向匹配计数失败次数
                                         if run_on_match:
@@ -1426,16 +1493,21 @@ def worker(app):
 
                                         current_continuous = task_continuous_match[branch_key]
                                         match_type = "正向匹配" if run_on_match else "反向匹配"
-                                        app.log(f"任务[{task_name}]分支{branch_idx}({ref_branch['image']})：{match_type} | 相似度 {similarity:.3f} | 单次匹配: {is_match} | 连续满足次数: {current_continuous}/{match_times}")
+                                        
+                                        # 日志输出：根据配置类型显示不同格式
+                                        if isinstance(image_config, str):
+                                            app.log(f"任务[{task_name}]分支{branch_idx}({image_config})：{match_type} | 相似度 {similarity:.3f} | 单次匹配: {is_match} | 连续满足次数: {current_continuous}/{match_times}")
+                                        else:
+                                            app.log(f"任务[{task_name}]分支{branch_idx}({image_config[0].upper()}逻辑)：{match_type} | 结果: {is_match} | 连续满足次数: {current_continuous}/{match_times}")
 
                                         # 【核心逻辑】第一个达到match_times阈值的分支被选中，立即跳出循环
                                         if current_continuous >= match_times:
                                             matched_branch = ref_branch
                                             matched_branch_idx = branch_idx
                                             if run_on_match:
-                                                app.log(f"✅ 任务[{task_name}]：分支{branch_idx}({ref_branch['image']})连续匹配成功，已选中此分支")
+                                                app.log(f"✅ 任务[{task_name}]：分支{branch_idx}连续匹配成功，已选中此分支")
                                             else:
-                                                app.log(f"✅ 任务[{task_name}]：分支{branch_idx}({ref_branch['image']})连续匹配失败（反向匹配），已选中此分支")
+                                                app.log(f"✅ 任务[{task_name}]：分支{branch_idx}连续匹配失败（反向匹配），已选中此分支")
                                             break
 
                                     # 处理分支匹配结果
