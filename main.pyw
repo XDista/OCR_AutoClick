@@ -26,6 +26,10 @@ from pynput import keyboard
 from pynput.keyboard import Key
 from pathlib import Path
 
+# 版本信息 - 集中管理，便于维护
+APP_VERSION = "1.4.2"
+UPDATE_TIME = "2026-05-19 00:20:00"
+
 # 解决高DPI显示模糊问题
 try:
     ctypes.windll.user32.SetProcessDPIAware()
@@ -1928,11 +1932,11 @@ class AutoClickGUI:
         main_notebook.add(window_frame, text="目标窗口")
         
         # 1.1 紧凑的窗口选择区域（下拉列表+刷新按钮）
-        select_frame = ttk.LabelFrame(window_frame, text="窗口选择", padding="10")
-        select_frame.pack(fill=tk.X, padx=10, pady=5)
+        select_frame = ttk.LabelFrame(window_frame, text="窗口选择", padding="5")
+        select_frame.pack(fill=tk.X, padx=10, pady=2)
         
         # 下拉列表：显示窗口列表（标题+进程名）
-        ttk.Label(select_frame, text="选择目标窗口：").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(select_frame, text="选择目标窗口：").grid(row=0, column=0, padx=5, pady=3, sticky=tk.W)
         self.window_var = tk.StringVar()
         self.window_combobox = ttk.Combobox(
             select_frame, 
@@ -1941,26 +1945,25 @@ class AutoClickGUI:
             width=60  # 紧凑宽度
         )
         self.window_combobox.bind("<<ComboboxSelected>>", self._on_window_change)
-        self.window_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        self.window_combobox.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
         
-        # 操作按钮：刷新+保存+模糊匹配配置
-        ttk.Button(select_frame, text="刷新列表", command=self._load_window_combobox).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(select_frame, text="选中", command=self._save_window_to_config).grid(row=0, column=3, padx=5, pady=5)
-        ttk.Button(select_frame, text="模糊匹配配置", command=self._edit_window_match_config).grid(row=0, column=4, padx=5, pady=5)
+        # 操作按钮：刷新+模糊匹配配置
+        ttk.Button(select_frame, text="刷新列表", command=self._load_window_combobox).grid(row=0, column=2, padx=5, pady=3)
+        ttk.Button(select_frame, text="模糊匹配配置", command=self._edit_window_match_config).grid(row=0, column=3, padx=5, pady=3)
         
         # 1.2 极简窗口信息（仅一行显示关键信息）
-        info_frame = ttk.LabelFrame(window_frame, text="窗口信息", padding="10")
-        info_frame.pack(fill=tk.X, padx=10, pady=5)
+        info_frame = ttk.LabelFrame(window_frame, text="窗口信息", padding="5")
+        info_frame.pack(fill=tk.X, padx=10, pady=2)
         
         self.window_info_var = tk.StringVar(value="未选择窗口 | 标题：- | 进程：- | 句柄：-")
-        ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=3)
         
         # =============================================
         # 新增：模板匹配步长配置区域（复用原有样式）
         # =============================================
         # 1. 创建和原有区域样式一致的LabelFrame
-        match_step_frame = ttk.LabelFrame(window_frame, text="模板匹配配置", padding="10")
-        match_step_frame.pack(fill=tk.X, padx=10, pady=5)
+        match_step_frame = ttk.LabelFrame(window_frame, text="模板匹配配置", padding="5")
+        match_step_frame.pack(fill=tk.X, padx=10, pady=2)
         
         # 2. 初始化配置读取（复用原有config逻辑）
         self.match_step_var = tk.StringVar()
@@ -1968,127 +1971,153 @@ class AutoClickGUI:
         self._load_match_step_from_config()
         
         # 3. 步长输入区域（布局和"窗口选择"区域对齐，保持视觉统一）
-        ttk.Label(match_step_frame, text="匹配缩略图步长：").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(match_step_frame, text="匹配缩略图步长：").grid(row=0, column=0, padx=5, pady=3, sticky=tk.W)
         # 输入框：宽度适配，仅允许输入数字
         step_entry = ttk.Entry(
             match_step_frame, 
             textvariable=self.match_step_var,
             width=20  # 紧凑宽度，和原有组件风格一致
         )
-        step_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        step_entry.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
         
         # 4. 保存按钮：复用原有配置写入逻辑风格
         ttk.Button(
             match_step_frame, 
             text="保存步长", 
             command=self._save_match_step_to_config
-        ).grid(row=0, column=2, padx=5, pady=5)
+        ).grid(row=0, column=2, padx=5, pady=3)
         
         # 5. 提示标签：告知合法范围，提升用户体验
         ttk.Label(
             match_step_frame, 
             text="（步长范围：0.001~0.2，默认0.05）",
             foreground="#666666"  # 浅灰色，不干扰主视觉
-        ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
+        ).grid(row=0, column=3, padx=5, pady=3, sticky=tk.W)
+
+        # 1.3 功能区域（从"其他"标签页迁移）
+        placeholder_frame = ttk.LabelFrame(window_frame, text="功能区域", padding="5")
+        placeholder_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        # 重启脚本按钮（左对齐）
+        restart_btn = ttk.Button(
+            placeholder_frame,
+            text="重启脚本",
+            command=self._restart_script
+        )
+        restart_btn.pack(side=tk.LEFT, padx=5, pady=3)
+        
+        # 关于按钮（右对齐）
+        about_btn = ttk.Button(
+            placeholder_frame,
+            text="关于",
+            command=self._show_about_dialog
+        )
+        about_btn.pack(side=tk.RIGHT, padx=5, pady=3)
 
         # 2. 任务配置标签页
         task_frame = ttk.Frame(main_notebook)
         main_notebook.add(task_frame, text="任务配置")
         
-        # 任务组选择
-        ttk.Label(task_frame, text="任务组：").grid(row=0, column=0, padx=5, pady=5)
+        # 任务组选择（添加LabelFrame框，随窗口宽度变化）
+        task_group_frame = ttk.LabelFrame(task_frame, text="任务组", padding="5")
+        task_group_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        ttk.Label(task_group_frame, text="选择任务组：").pack(side=tk.LEFT, padx=5, pady=3)
         self.task_var = tk.StringVar()
-        self.task_combobox = ttk.Combobox(task_frame, textvariable=self.task_var, state="readonly")
-        self.task_combobox.grid(row=0, column=1, padx=5, pady=5)
+        self.task_combobox = ttk.Combobox(task_group_frame, textvariable=self.task_var, state="readonly")
+        self.task_combobox.pack(side=tk.LEFT, padx=5, pady=3)
         self.task_combobox.bind("<<ComboboxSelected>>", self._on_task_group_change)
-        ttk.Button(task_frame, text="刷新", command=self._load_task_groups).grid(row=0, column=2, padx=5)
-        ttk.Button(task_frame, text="新建", command=self._new_task_group).grid(row=0, column=3, padx=5)
-        ttk.Button(task_frame, text="编辑", command=self._edit_task_config).grid(row=0, column=4, padx=5)
-        ttk.Button(task_frame, text="坐标拾取", command=self._open_screenxy).grid(row=0, column=5, padx=5)
-        ttk.Button(task_frame, text="ADB截图工具", command=self._open_adb_screenshot).grid(row=0, column=6, padx=5)
+        ttk.Button(task_group_frame, text="刷新", command=self._load_task_groups).pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Button(task_group_frame, text="新建", command=self._new_task_group).pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Button(task_group_frame, text="编辑", command=self._edit_task_config).pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Button(task_group_frame, text="坐标拾取", command=self._open_screenxy).pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Button(task_group_frame, text="ADB截图工具", command=self._open_adb_screenshot).pack(side=tk.LEFT, padx=5, pady=3)
         
         # 定时配置
-        schedule_frame = ttk.LabelFrame(task_frame, text="定时运行配置", padding="10")
-        schedule_frame.grid(row=1, column=0, columnspan=5, sticky=tk.W+tk.E, padx=10, pady=5)
+        schedule_frame = ttk.LabelFrame(task_frame, text="定时运行配置", padding="5")
+        schedule_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        schedule_inner = ttk.Frame(schedule_frame)
+        schedule_inner.pack(fill=tk.X, padx=5, pady=3)
         
         self.enable_schedule_var = tk.BooleanVar()
         schedule_check = ttk.Checkbutton(
-            schedule_frame, 
+            schedule_inner, 
             text="启用定时运行", 
             variable=self.enable_schedule_var,
             command=self._toggle_schedule_widgets
         )
-        schedule_check.grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        schedule_check.pack(side=tk.LEFT, padx=5, pady=3)
         
-        ttk.Label(schedule_frame, text="定时时间：").grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(schedule_inner, text="定时时间：").pack(side=tk.LEFT, padx=5, pady=3)
         self.schedule_time_var = tk.StringVar(value="00:00:00")
         self.schedule_time_entry = ttk.Entry(
-            schedule_frame, 
+            schedule_inner, 
             textvariable=self.schedule_time_var, 
             width=12
         )
-        self.schedule_time_entry.grid(row=0, column=2, padx=5, pady=5)
-        ttk.Label(schedule_frame, text="（HH:MM:SS）").grid(row=0, column=3, padx=5, pady=5)
+        self.schedule_time_entry.pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Label(schedule_inner, text="（HH:MM:SS）").pack(side=tk.LEFT, padx=5, pady=3)
         
-        ttk.Label(schedule_frame, text="运行模式：").grid(row=0, column=4, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(schedule_inner, text="运行模式：").pack(side=tk.LEFT, padx=5, pady=3)
         self.schedule_mode_var = tk.StringVar()
         self.schedule_mode_combobox = ttk.Combobox(
-            schedule_frame, 
+            schedule_inner, 
             textvariable=self.schedule_mode_var,
             values=["仅一次", "始终"],
             state="readonly",
             width=8
         )
-        self.schedule_mode_combobox.grid(row=0, column=5, padx=5, pady=5)
+        self.schedule_mode_combobox.pack(side=tk.LEFT, padx=5, pady=3)
         self.schedule_mode_combobox.current(0)
         
         ttk.Button(
-            schedule_frame, 
+            schedule_inner, 
             text="保存配置", 
             command=self._save_schedule_config
-        ).grid(row=0, column=6, padx=10, pady=5)
+        ).pack(side=tk.LEFT, padx=10, pady=3)
 
-          # ---------------------- 新增：点击模式切换下拉列表 ---------------------
-        # 放在定时运行配置框的下方（task_frame的row=2）
-        ttk.Label(task_frame, text="点击模式：").grid(row=2, column=0, padx=5, pady=8, sticky="w")
+        # 其他配置项框架
+        config_frame = ttk.LabelFrame(task_frame, text="点击配置", padding="5")
+        config_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        # ---------------------- 点击模式切换下拉列表 ---------------------
+        ttk.Label(config_frame, text="点击模式：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
         self.click_mode_var = tk.StringVar()
         self.click_mode_combobox = ttk.Combobox(
-            task_frame,
+            config_frame,
             textvariable=self.click_mode_var,
             values=["SendMessage消息点击", "PyAutoGUI硬件点击"],
             state="readonly",
-            width=35  # 加长下拉栏宽度（原15→35）
+            width=35
         )
-        self.click_mode_combobox.grid(row=2, column=1, padx=5, pady=8, sticky=tk.W)
-        # 绑定选中事件，实现「选择即更新」
+        self.click_mode_combobox.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
         self.click_mode_combobox.bind("<<ComboboxSelected>>", self._on_click_mode_change)
 
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
 
-        # ========== 新增：截图模式选择（点击模式下一行） ==========
-        ttk.Label(task_frame, text="截图模式：").grid(row=6, column=0, padx=5, pady=3, sticky="w")
+        # ========== 截图模式选择 ==========
+        ttk.Label(config_frame, text="截图模式：").grid(row=1, column=0, padx=5, pady=2, sticky="w")
         self.screenshot_mode_var = tk.StringVar(value=main_config["GENERAL"]["screenshot_mode"])
-        screenshot_mode_combo = ttk.Combobox(task_frame, textvariable=self.screenshot_mode_var, 
+        screenshot_mode_combo = ttk.Combobox(config_frame, textvariable=self.screenshot_mode_var, 
             values=["Win32GUI", "PrintWindow", "Win32Memory", "ADB"], state="readonly", width=35)
-        screenshot_mode_combo.grid(row=6, column=1, padx=5, pady=3, sticky="w")
+        screenshot_mode_combo.grid(row=1, column=1, padx=5, pady=3, sticky="w")
         screenshot_mode_combo.bind("<<ComboboxSelected>>", self.on_screenshot_mode_change)
-        # =======================================================
 
-        # ========== 新增：ADB设备Serial号配置（截图模式为adb时生效） ==========
-        ttk.Label(task_frame, text="ADB设备Serial：").grid(row=7, column=0, padx=5, pady=3, sticky="w")
+        # ========== ADB设备Serial号配置 ==========
+        ttk.Label(config_frame, text="ADB设备Serial：").grid(row=2, column=0, padx=5, pady=3, sticky="w")
         self.adb_device_serial_var = tk.StringVar(value=main_config["ADBConfig"]["adb_device_serial"])
-        adb_device_serial_entry = ttk.Entry(task_frame, textvariable=self.adb_device_serial_var, width=38)
-        adb_device_serial_entry.grid(row=7, column=1, padx=5, pady=3, sticky="w")
+        adb_device_serial_entry = ttk.Entry(config_frame, textvariable=self.adb_device_serial_var, width=38)
+        adb_device_serial_entry.grid(row=2, column=1, padx=5, pady=3, sticky="w")
         adb_device_serial_entry.bind("<FocusOut>", self.on_adb_device_serial_change)
-        # ====================================================================
+        
         def comfort_confirm():
             """仅作安慰作用，无实际功能"""
             self.log("✅ 设备Serial已更新")
 
-        # 紧贴输入框右侧添加按钮（column=2，padx=0紧贴）
-        comfort_btn = ttk.Button(task_frame, text="确认", command=comfort_confirm, width=6)
-        comfort_btn.grid(row=7, column=2, padx=(0, 5), pady=3, sticky="w")
+        comfort_btn = ttk.Button(config_frame, text="确认", command=comfort_confirm, width=6)
+        comfort_btn.grid(row=2, column=2, padx=(0, 5), pady=3, sticky="w")
         # ====================================================================
 
 
@@ -2122,46 +2151,45 @@ class AutoClickGUI:
         style.configure("Gray.TLabel", foreground="#888888")   # 灰显标签
         style.configure("Normal.TLabel", foreground="#000000") # 正常标签
 
-        # ---------------------- 控件布局 ----------------------
-        # 1. ADB功能启用
+        # ---------------------- 控件布局（使用LabelFrame分组，压缩高度） ----------------------
+        # 1. ADB功能启用和使用模式（放在同一行）
+        adb_basic_frame = ttk.LabelFrame(adb_frame, text="ADB基本设置", padding="5")
+        adb_basic_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        # ADB功能启用
         current_enabled_text = "是" if adb_enabled == "1" else "否"
         adb_enabled_var = tk.StringVar(value=current_enabled_text)
 
-        ttk.Label(adb_frame, text="ADB功能启用：").grid(
-            row=0, column=0, padx=10, pady=8, sticky="w"
+        ttk.Label(adb_basic_frame, text="ADB启用控制：").grid(
+            row=0, column=0, padx=5, pady=3, sticky="w"
         )
         adb_enabled_combobox = ttk.Combobox(
-            adb_frame, textvariable=adb_enabled_var, values=["是", "否"], width=12, state="readonly"
+            adb_basic_frame, textvariable=adb_enabled_var, values=["是", "否"], width=6, state="readonly"
         )
-        adb_enabled_combobox.grid(row=0, column=1, padx=2, pady=8, sticky="w")
-        ttk.Label(adb_frame, text="是=启用ADB检查 | 否=忽略配置").grid(
-            row=0, column=2, padx=5, pady=8, sticky="w"
-        )
+        adb_enabled_combobox.grid(row=0, column=1, padx=2, pady=3, sticky="w")
 
-        # 2. ADB使用模式
+        # ADB使用模式（与启用控制同一行）
         current_mode_text = {v: k for k, v in mode_map.items()}.get(adb_usage_mode, "内置")
         adb_mode_var = tk.StringVar(value=current_mode_text)
 
-        ttk.Label(adb_frame, text="ADB使用模式：").grid(
-            row=1, column=0, padx=10, pady=8, sticky="w"
+        ttk.Label(adb_basic_frame, text="ADB使用模式：").grid(
+            row=0, column=2, padx=10, pady=3, sticky="w"
         )
         adb_mode_combobox = ttk.Combobox(
-            adb_frame, textvariable=adb_mode_var, values=["内置", "自定义", "系统环境变量"], width=12, state="readonly"
+            adb_basic_frame, textvariable=adb_mode_var, values=["内置", "自定义", "系统环境变量"], width=12, state="readonly"
         )
-        adb_mode_combobox.grid(row=1, column=1, padx=2, pady=8, sticky="w")
-        mode_note = ttk.Label(
-            adb_frame,
-            text="内置=脚本内置 | 自定义=手动路径 | 系统环境变量=全局ADB",
-        )
-        mode_note.grid(row=1, column=2, padx=5, pady=8, sticky="w")
+        adb_mode_combobox.grid(row=0, column=3, padx=2, pady=3, sticky="w")
 
-        # 3. 自定义ADB路径（新增控件命名，用于样式切换）
-        adb_path_label = ttk.Label(adb_frame, text="自定义ADB路径：")
-        adb_path_label.grid(row=2, column=0, padx=10, pady=8, sticky="w")
+        # 2. 自定义ADB路径（包含验证ADB环境按钮）
+        adb_path_frame = ttk.LabelFrame(adb_frame, text="自定义ADB路径", padding="5")
+        adb_path_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        adb_path_label = ttk.Label(adb_path_frame, text="路径：")
+        adb_path_label.grid(row=0, column=0, padx=5, pady=3, sticky="w")
 
         adb_position_var = tk.StringVar(value=adb_position)
-        adb_position_entry = ttk.Entry(adb_frame, textvariable=adb_position_var, width=35)
-        adb_position_entry.grid(row=2, column=1, padx=2, pady=8, sticky="w")
+        adb_position_entry = ttk.Entry(adb_path_frame, textvariable=adb_position_var, width=35)
+        adb_position_entry.grid(row=0, column=1, padx=2, pady=3, sticky="w")
 
         def select_adb_path():
             adb_file = filedialog.askopenfilename(
@@ -2171,13 +2199,11 @@ class AutoClickGUI:
             )
             if adb_file:
                 adb_position_var.set(adb_file)
-        adb_browse_btn = ttk.Button(adb_frame, text="浏览", command=select_adb_path)
-        adb_browse_btn.grid(row=2, column=2, padx=5, pady=8, sticky="w")
+        adb_browse_btn = ttk.Button(adb_path_frame, text="浏览", command=select_adb_path, width=6)
+        adb_browse_btn.grid(row=0, column=2, padx=5, pady=3, sticky="w")
 
-
-        # 4. 验证ADB环境按钮
+        # 验证ADB环境按钮（放在路径框内）
         def validate_adb_env():
-            #from your_script_name import validate_adb_environment
             is_valid, msg = validate_adb_environment()
             log_time = time.strftime("%Y-%m-%d %H:%M:%S")
             if is_valid:
@@ -2186,36 +2212,49 @@ class AutoClickGUI:
                 app.log(f"[{log_time}] ADB验证失败：{msg}")
 
         ttk.Button(
-            adb_frame, text="验证ADB环境", command=validate_adb_env, width=15
-        ).grid(row=3, column=1, padx=2, pady=10, sticky="w")
+            adb_path_frame, text="验证ADB环境", command=validate_adb_env, width=12
+        ).grid(row=0, column=3, padx=5, pady=3, sticky="w")
 
-        # ========== 新增：ADB命令行执行区域 ==========
-        # 命令输入框（row=4）
-        ttk.Label(adb_frame, text="ADB命令执行：").grid(
-            row=4, column=0, padx=10, pady=8, sticky="w"
+        # 提示信息（缩小字体）
+        tip_label = ttk.Label(
+            adb_path_frame,
+            text="仅在“是+自定义”模式下生效",
+            foreground="#666666",
+            font=(None, 10) 
         )
-        self.adb_cmd_var = tk.StringVar(value="")  # 存储完整ADB命令（含adb前缀）
+        tip_label.grid(row=1, column=0, columnspan=4, padx=5, pady=2, sticky="w")
+
+        # 3. ADB命令执行
+        adb_cmd_frame = ttk.LabelFrame(adb_frame, text="ADB命令执行", padding="5")
+        adb_cmd_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        # 命令输入框
+        ttk.Label(adb_cmd_frame, text="命令：").grid(
+            row=0, column=0, padx=5, pady=3, sticky="w"
+        )
+        self.adb_cmd_var = tk.StringVar(value="")
         adb_cmd_entry = ttk.Entry(
-            adb_frame, textvariable=self.adb_cmd_var, width=50
+            adb_cmd_frame, textvariable=self.adb_cmd_var, width=45
         )
-        adb_cmd_entry.grid(row=4, column=2, padx=2, pady=8, sticky="w")
+        adb_cmd_entry.grid(row=0, column=1, padx=2, pady=3, sticky="w")
 
-        # 执行按钮（row=4，与输入框同排）
+        # 执行按钮
         def execute_adb_cmd():
             self._run_adb_command()
         ttk.Button(
-            adb_frame, text="执行命令", command=execute_adb_cmd, width=10
-        ).grid(row=4, column=3, padx=5, pady=8, sticky="w")
+            adb_cmd_frame, text="执行命令", command=execute_adb_cmd, width=10
+        ).grid(row=0, column=2, padx=5, pady=8, sticky="w")
 
         # 绑定Enter键触发执行
         adb_cmd_entry.bind("<Return>", lambda event: self._run_adb_command())
 
-        # 提示文本（修改为要求带adb前缀）
+        # 提示文本
         cmd_tip_label = ttk.Label(
-            adb_frame,
-            text="提示：输入完整ADB命令（需带'adb '前缀，如'adb devices'、'adb shell getprop'）",
+            adb_cmd_frame,
+            text="输入完整ADB命令（需带'adb '前缀，如'adb devices'、'adb shell getprop'）",
+            foreground="#666666"
         )
-        cmd_tip_label.grid(row=3, column=2, columnspan=3, padx=10, pady=5, sticky="w")
+        cmd_tip_label.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="w")
 
         # 5. 实时更新配置（精准记录修改内容，无变化不输出日志）
         def update_adb_config(*args):
@@ -2290,14 +2329,22 @@ class AutoClickGUI:
         adb_mode_var.trace_add("write", update_adb_config)
         adb_position_var.trace_add("write", update_adb_config)
 
-        # 6. 提示信息
-        tip_label = ttk.Label(
-            adb_frame,
-            text="提示：自定义路径仅在“是+自定义”模式下生效",
+        # ========== 4. 其他标签页（空白框架，内容待补充） ==========
+        # 参考"目标窗口"标签页结构创建，添加在最右侧
+        other_frame = ttk.Frame(main_notebook)
+        main_notebook.add(other_frame, text="其他")
+        
+        # 空白区域框架（内容待后续补充）
+        empty_frame = ttk.LabelFrame(other_frame, text="功能区域", padding="10")
+        empty_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # 占位提示标签
+        placeholder_label = ttk.Label(
+            empty_frame,
+            text="内容待补充...",
+            foreground="#666666"
         )
-        tip_label.grid(row=4, column=0, columnspan=3, padx=10, pady=5, sticky="w")
-
-
+        placeholder_label.pack(padx=5, pady=5)
 
         # 3. 控制和日志区域
         control_frame = ttk.Frame(self.root)
@@ -2308,13 +2355,11 @@ class AutoClickGUI:
         self.stop_btn = ttk.Button(control_frame, text="停止", command=self._stop, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="编辑总配置", command=self._edit_main_config).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="清除日志", command=self._clear_log).pack(side=tk.LEFT, padx=5)
-        
         self.scroll_btn = ttk.Button(control_frame, text="日志自动滚动：开", command=self._toggle_auto_scroll)
         self.scroll_btn.pack(side=tk.RIGHT, padx=5)
 
-        self.about_btn = ttk.Button(control_frame, text="关于", command=self._show_about_dialog)
-        self.about_btn.pack(side=tk.RIGHT, padx=5)
+        # 清除日志按钮（移到原关于按钮位置）
+        ttk.Button(control_frame, text="清除日志", command=self._clear_log).pack(side=tk.RIGHT, padx=5)
         
         # 日志区
         log_frame = ttk.LabelFrame(self.root, text="运行日志", padding="10")
@@ -2478,26 +2523,7 @@ class AutoClickGUI:
         info_text = f"标题：{win['title']} | 进程：{win['process_name']} | 句柄：{win['hwnd']}"
         self.window_info_var.set(info_text)
     
-    def _save_window_to_config(self):
-        """将选中的窗口保存为默认（写入总配置）"""
-        idx = self.window_combobox.current()
-        if idx < 0 or idx >= len(self.window_list):
-            messagebox.showwarning("提示", "请先选择窗口")
-            return
-        
-        win = self.window_list[idx]
-        config = configparser.ConfigParser()
-        config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        config["GENERAL"]["target_window_hwnd"] = str(win["hwnd"])
-        config["GENERAL"]["target_window_title"] = win["title"]
-        config["GENERAL"]["target_program_name"] = win["process_name"]
-        
-        with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
-        
-        self.log(f"✅ 已将窗口「{win['display']}」写入配置文件")
 
-    
     
     def _load_default_window_from_config(self):
         """从配置读取默认窗口并选中"""
@@ -2751,6 +2777,28 @@ class AutoClickGUI:
         else:
             self.log("🛑 任务因条件触发自动停止")
         
+    def _restart_script(self):
+        """重启脚本"""
+        self.log("🔄 正在重启脚本...")
+        
+        # 停止当前运行的任务
+        self._stop(is_manual=False)
+        
+        # 获取当前脚本路径
+        if getattr(sys, 'frozen', False):
+            # 打包为exe的情况
+            script_path = sys.executable
+        else:
+            # 作为.py文件运行的情况
+            script_path = os.path.abspath(__file__)
+        
+        # 启动新进程
+        subprocess.Popen([sys.executable, script_path] if not getattr(sys, 'frozen', False) else [script_path])
+        
+        # 关闭当前进程
+        self.root.destroy()
+        sys.exit(0)
+        
     def _clear_log(self):
         # 临时启用编辑状态以清除日志
         self.log_text.config(state=tk.NORMAL)
@@ -2782,7 +2830,7 @@ class AutoClickGUI:
         ttk.Label(content_frame, text="OCR自动点击工具", font=("微软雅黑", 16, "bold")).pack(pady=10)
         
         # 版本信息
-        #ttk.Label(content_frame, text="版本: 1.4.1").pack(pady=5)
+        ttk.Label(content_frame, text=f"版本: {APP_VERSION}").pack(pady=5)
         
         # 功能描述
         # 创建描述文本
