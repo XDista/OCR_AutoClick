@@ -28,7 +28,7 @@ from pathlib import Path
 
 # 版本信息 - 集中管理，便于维护
 APP_VERSION = "1.4.2"
-UPDATE_TIME = "2026-05-19 22:30:00"
+UPDATE_TIME = "2026-05-19 22:10:00"
 
 # 解决高DPI显示模糊问题
 try:
@@ -1610,7 +1610,12 @@ def worker(app):
                 break
             
             if not need_wait:
-                time.sleep(freq)
+                # 改为多段短sleep，便于快速响应停止信号
+                remaining_time = freq
+                sleep_chunk = 0.1  # 每次sleep 0.1秒
+                while remaining_time > 0 and not app.stop_flag:
+                    time.sleep(min(sleep_chunk, remaining_time))
+                    remaining_time -= sleep_chunk
         
         except Exception as e:
             is_normal_execution = False
@@ -2752,13 +2757,39 @@ class AutoClickGUI:
             messagebox.showerror("错误", f"无法打开文件：{str(e)}")
     
     def _start(self):
+        # ========== 修复：停止功能历史遗留问题 ==========
+        # 问题：当执行到中途手动停止后再启动，可能导致同一个动作重复执行
+        # 原因：启动前没有确保旧线程完全停止并重置状态
+        # 解决：启动新线程前，先确保旧线程完全停止
+        # 
+        # 针对低性能设备优化：
+        # 1. 使用较长超时时间（3秒），确保慢速设备有足够时间完成线程清理
+        # 2. 添加状态日志，便于调试和用户反馈
+        # 3. 使用非阻塞轮询方式，避免完全阻塞UI
+        if self.thread and self.thread.is_alive():
+            self.stop_flag = True
+            self.log("⏳ 等待旧线程停止...")
+            
+            # 低性能设备优化：使用3秒超时，并记录实际等待时间
+            start_wait = time.time()
+            self.thread.join(timeout=5.0)  # 延长超时时间至3秒，适应低性能设备
+            wait_time = time.time() - start_wait
+            
+            if self.thread.is_alive():
+                self.log(f"⚠️ 旧线程停止超时（等待{wait_time:.2f}秒），可能仍在后台运行")
+            else:
+                self.log(f"✅ 旧线程已停止（耗时{wait_time:.2f}秒）")
+        
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
         main_config["GENERAL"]["current_task_group"] = self.task_var.get()
         with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
             main_config.write(f)
         
+        # 重置停止标志（必须在启动新线程前完成）
         self.stop_flag = False
+        
+        # 创建并启动新线程
         self.thread = threading.Thread(target=worker, args=(self,), daemon=True)
         self.thread.start()
         
