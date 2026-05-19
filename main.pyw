@@ -28,7 +28,7 @@ from pathlib import Path
 
 # 版本信息 - 集中管理，便于维护
 APP_VERSION = "1.4.2"
-UPDATE_TIME = "2026-05-19 22:10:00"
+UPDATE_TIME = "2026-05-19 22:30:00"
 
 # 解决高DPI显示模糊问题
 try:
