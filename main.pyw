@@ -28,7 +28,7 @@ from pathlib import Path
 
 # 版本信息 - 集中管理，便于维护
 APP_VERSION = "1.4.2"
-UPDATE_TIME = "2026-05-19 00:20:00"
+UPDATE_TIME = "2026-05-19 22:10:00"
 
 # 解决高DPI显示模糊问题
 try:
@@ -1925,6 +1925,11 @@ class AutoClickGUI:
     def _create_widgets(self):
         # 主布局：移除坐标拾取标签页，保留原有结构
         main_notebook = ttk.Notebook(self.root)
+        
+        # ========== 统一标签页按钮宽度和文字居中 ==========
+        style = ttk.Style()
+        style.configure('TNotebook.Tab', width=80, anchor=tk.CENTER)  # 设置标签页统一宽度为80像素，文字居中对齐
+        
         main_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # 1. 目标窗口标签页（精简为下拉列表）
@@ -2341,7 +2346,7 @@ class AutoClickGUI:
         # 占位提示标签
         placeholder_label = ttk.Label(
             empty_frame,
-            text="内容待补充...",
+            text="前面的区域，以后再来探索吧！",
             foreground="#666666"
         )
         placeholder_label.pack(padx=5, pady=5)
