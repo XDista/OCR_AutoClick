@@ -33,7 +33,7 @@
                         ]
                     },
                     {
-                        "type": "shutdown",
+                        "type": "cmd_call",
                         "params": [
                             "shutdown /a"
                         ]
