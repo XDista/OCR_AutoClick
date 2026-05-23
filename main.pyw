@@ -27,8 +27,8 @@ from pynput.keyboard import Key
 from pathlib import Path
 
 # 版本信息 - 集中管理，便于维护
-APP_VERSION = "1.4.2"
-UPDATE_TIME = "2026-05-23 20:10:00"
+APP_VERSION = "1.4.3"
+UPDATE_TIME = "2026-05-23 22:10:00"
 
 # 解决高DPI显示模糊问题
 try:
@@ -665,6 +665,40 @@ def execute_action(window, action_type, params, stop_flag=False):
                 f"  执行命令：{final_adb_cmd}\n"
                 f"  错误：{str(e)}"
             )
+    
+    # ---------------------- cmd_call 执行CMD命令动作 ----------------------
+    elif action_type == "cmd_call":
+        # 检查参数
+        if not params or not params[0]:
+            return "cmd_call动作参数不足（格式：cmd_call:完整CMD命令）"
+        
+        # 获取命令
+        cmd = params[0].strip()
+        if not cmd:
+            return "cmd_call命令不能为空"
+        
+        try:
+            app.log(f"  - 执行CMD命令：{cmd}")
+            # 执行CMD命令，捕获输出/错误（超时60秒）
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding="utf-8",
+                timeout=60
+            )
+            # 输出执行结果
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            return f"CMD命令执行成功：{cmd}\n  输出：{stdout}\n  错误输出：{stderr}"
+        except subprocess.CalledProcessError as e:
+            return f"CMD命令执行失败（返回码：{e.returncode}）：{cmd}\n  输出：{e.stdout}\n  错误：{e.stderr}"
+        except subprocess.TimeoutExpired:
+            return f"CMD命令执行超时（60秒）：{cmd}"
+        except Exception as e:
+            return f"CMD命令执行异常：{cmd} | 错误：{str(e)}"
     
     elif action_type == "shutdown":
         try:
