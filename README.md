@@ -32,7 +32,8 @@ A：因为alas脚本虽然强大，但有时更新不够及时，不能很好地
 Q：如何使用？
 
 A：	
-1.下载解压OCR_AutoClick (版本号).zip———Source code(zip)文件
+1.下载解压OCR_AutoClick (版本号).zip———Source code(zip)文件——————请先确认下载的分支！
+ - develop分支为开发版，合并了较新的特性，但可能存在不稳定的问题！main为稳定版（相对）
 
 2.按照install文件夹内的安装说明，安装必要环境与依赖库
 	  
