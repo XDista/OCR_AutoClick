@@ -1335,6 +1335,7 @@ def worker(app):
                         time.sleep(min(wait_sec, freq))
                         need_wait = True
                     else:
+                        need_wait = False  # 关键修复：时间已到，允许任务执行
                         if schedule_mode == "once":
                             app.log(f"【定时触发】仅一次模式已触发（{start_time_str}）")
                             scheduled_once_triggered = True

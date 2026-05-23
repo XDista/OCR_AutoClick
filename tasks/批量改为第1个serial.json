@@ -1,0 +1,36 @@
+{
+    "TASK1": {
+        "ignore_occlusion": true,
+        "ref_images": [
+            {
+                "image": "Working.png",
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "actions": [
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "cmd_call",
+                        "params": [
+		                    "python ./change_serial/change_serial_force.py -b -p 1 -y"
+                        ]
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [
+                            1.0
+                        ]
+                    },
+                    {
+                        "type": "stop",
+                        "params": []
+                    }   
+                ]
+            }
+        ]
+    }
+}
