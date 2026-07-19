@@ -120,11 +120,11 @@ def init_main_config():
     # ========== 新增：WindowConfig节点默认配置（核心修改2） ==========
     default_window_config = {
         "selfgeometry": "1200x600",  # 窗口长宽，格式axb（默认800x600）
-        "selfxy_changeable": "1" ,    # 1=可改变脚本窗口尺寸，0=固定尺寸（默认可修改）
+        "selfxy_resizable": "1" ,    # 1=可改变脚本窗口尺寸，0=固定尺寸（默认可修改）
         "scrgeometry": "820x460",
-        "scrxy_changeable": "1" ,
+        "scrxy_resizable": "1" ,
         "adbscrgeometry":"700x450", 
-        "adbscrxy_changeable": "1" 
+        "adbscrxy_resizable": "1" 
     }
 
     # 写入GENERAL默认配置
@@ -274,9 +274,25 @@ def get_adb_executable_path():
         except FileNotFoundError:
             return False, "模式3 - 系统环境变量中未找到ADB"
     
+    # 模式4：Alas附带
+    elif adb_usage_mode == "4":
+        # 获取where_alas配置
+        where_alas = main_config["GENERAL"].get("where_alas", "").strip()
+        if not where_alas:
+            return False, "模式4 - 未配置Alas路径（where_alas为空）"
+        if not os.path.exists(where_alas):
+            return False, f"模式4 - Alas路径不存在：{where_alas}"
+        # 构建adb路径：Alas.exe同目录下的toolkit/Lib/site-packages/adbutils/binaries/adb.exe
+        alas_dir = os.path.dirname(where_alas)
+        adb_path = os.path.join(alas_dir, "toolkit", "Lib", "site-packages", "adbutils", "binaries", "adb.exe")
+        if os.path.exists(adb_path):
+            return True, adb_path
+        else:
+            return False, f"模式4 - Alas附带ADB不存在：{adb_path}"
+    
     # 无效模式
     else:
-        return False, f"无效的ADB使用模式：{adb_usage_mode}（仅支持1/2/3）"
+        return False, f"无效的ADB使用模式：{adb_usage_mode}（仅支持1/2/3/4）"
 
 def validate_adb_environment():
     """验证ADB环境是否可用，返回：(是否可用, 提示信息)"""
@@ -1685,9 +1701,9 @@ class AutoClickGUI:
 
         config = init_main_config()  # 确保配置已初始化
         selfgeometry = config["WindowConfig"]["selfgeometry"]
-        selfxy_changeable = int(config["WindowConfig"]["selfxy_changeable"])
+        selfxy_resizable = int(config["WindowConfig"]["selfxy_resizable"])
         self.root.geometry(selfgeometry)#主窗口长宽
-        self.root.resizable(selfxy_changeable, selfxy_changeable)
+        self.root.resizable(selfxy_resizable, selfxy_resizable)
 
         self.thread = None
         self.auto_scroll = True
@@ -2185,7 +2201,7 @@ class AutoClickGUI:
 
         # ---------------------- 下拉框显示文字与实际值的映射 ----------------------
         enabled_map = {"是": "1", "否": "0"}
-        mode_map = {"内置": "1", "自定义": "2", "系统环境变量": "3"}
+        mode_map = {"内置": "1", "自定义": "2", "系统环境变量": "3", "Alas附带": "4"}
         enabled_rev_map = {v: k for k, v in enabled_map.items()}
         mode_rev_map = {v: k for k, v in mode_map.items()}
 
@@ -2209,7 +2225,7 @@ class AutoClickGUI:
             row=0, column=0, padx=5, pady=3, sticky="w"
         )
         adb_enabled_combobox = ttk.Combobox(
-            adb_basic_frame, textvariable=adb_enabled_var, values=["是", "否"], width=6, state="readonly"
+            adb_basic_frame, textvariable=adb_enabled_var, values=["是", "否"], width=12, state="readonly"
         )
         adb_enabled_combobox.grid(row=0, column=1, padx=2, pady=3, sticky="w")
 
@@ -2221,7 +2237,7 @@ class AutoClickGUI:
             row=0, column=2, padx=10, pady=3, sticky="w"
         )
         adb_mode_combobox = ttk.Combobox(
-            adb_basic_frame, textvariable=adb_mode_var, values=["内置", "自定义", "系统环境变量"], width=12, state="readonly"
+            adb_basic_frame, textvariable=adb_mode_var, values=["内置", "自定义", "系统环境变量", "Alas附带"], width=12, state="readonly"
         )
         adb_mode_combobox.grid(row=0, column=3, padx=2, pady=3, sticky="w")
 
@@ -2383,9 +2399,53 @@ class AutoClickGUI:
         empty_frame = ttk.LabelFrame(other_frame, text="功能区域", padding="10")
         empty_frame.pack(fill=tk.X, padx=10, pady=5)
         
+        # Alas路径配置（第一行）
+        if "GENERAL" not in main_config:
+            main_config["GENERAL"] = {}
+        where_alas = main_config["GENERAL"].get("where_alas", "")
+        where_alas_var = tk.StringVar(value=where_alas)
+        
+        ttk.Label(empty_frame, text="Alas路径：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
+        where_alas_entry = ttk.Entry(empty_frame, textvariable=where_alas_var, width=35)
+        where_alas_entry.grid(row=0, column=1, padx=2, pady=3, sticky="w")
+        
+        def select_alas_path():
+            alas_file = filedialog.askopenfilename(
+                title="选择Alas可执行文件",
+                initialdir=os.path.dirname(where_alas) if where_alas else BASE_DIR,
+                filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
+            )
+            if alas_file:
+                where_alas_var.set(alas_file)
+        ttk.Button(empty_frame, text="浏览", command=select_alas_path, width=6).grid(row=0, column=2, padx=5, pady=3, sticky="w")
+        
+        # 更新配置函数
+        def update_alas_config(*args):
+            new_alas_path = where_alas_var.get()
+            if new_alas_path != where_alas:
+                try:
+                    main_config = configparser.ConfigParser()
+                    main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+                    if "GENERAL" not in main_config:
+                        main_config["GENERAL"] = {}
+                    main_config["GENERAL"]["where_alas"] = new_alas_path
+                    with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
+                        main_config.write(f)
+                    log_time = time.strftime("%Y-%m-%d %H:%M:%S")
+                    app.log(f"[{log_time}] Alas路径更新：{where_alas if where_alas else '空'} → {new_alas_path if new_alas_path else '空'}")
+                except Exception as e:
+                    log_time = time.strftime("%Y-%m-%d %H:%M:%S")
+                    app.log(f"[{log_time}] Alas路径更新失败：{str(e)}")
+        
+        where_alas_var.trace_add("write", update_alas_config)
+        
+        # 空白区域框架（内容待后续补充）- 另起一个区域框
+        placeholder_frame = ttk.LabelFrame(other_frame, text="预留区域", padding="10")
+        placeholder_frame.pack(fill=tk.X, padx=10, pady=5)
+        
         # 占位提示标签
         placeholder_label = ttk.Label(
-            empty_frame,
+            placeholder_frame,
             text="前面的区域，以后再来探索吧！",
             foreground="#666666"
         )

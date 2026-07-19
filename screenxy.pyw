@@ -97,9 +97,9 @@ class AdvancedCoordinatePicker:
 
         config = init_main_config()  # 确保配置已初始化
         scrgeometry = config["WindowConfig"]["scrgeometry"]
-        scr_changeable = int(config["WindowConfig"]["scrxy_changeable"])
+        scr_resizable = int(config["WindowConfig"]["scrxy_resizable"])
         self.root.geometry(scrgeometry)#主窗口长宽
-        self.root.resizable(scr_changeable, scr_changeable)
+        self.root.resizable(scr_resizable, scr_resizable)
         
         self.picking = False
         self.selected_hwnd = None

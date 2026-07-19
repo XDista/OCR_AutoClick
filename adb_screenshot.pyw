@@ -39,9 +39,9 @@ class ADBScreenshotGUI:
 
         config = init_main_config()  # 确保配置已初始化
         adbscrgeometry = config["WindowConfig"]["adbscrgeometry"]
-        adbscrxy_changeable = int(config["WindowConfig"]["adbscrxy_changeable"])
+        adbscrxy_resizable = int(config["WindowConfig"]["adbscrxy_resizable"])
         self.root.geometry(adbscrgeometry)#主窗口长宽
-        self.root.resizable(adbscrxy_changeable, adbscrxy_changeable)
+        self.root.resizable(adbscrxy_resizable, adbscrxy_resizable)
 
         # 1. 读取配置文件（从config.ini读取配置）
         self.adb_path, self.device_serial = self._read_config()
