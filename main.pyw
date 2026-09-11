@@ -1883,6 +1883,19 @@ class AutoClickGUI:
             self.log(f"⚠️ 保存截图模式配置失败：{str(e)}")
             messagebox.showerror("错误", f"保存截图模式失败：{e}")
 
+    def _on_tab_changed(self, event):
+        """标签页切换时清除所有下拉框的焦点"""
+        for combobox in [
+            getattr(self, 'window_combobox', None),
+            getattr(self, 'task_combobox', None),
+            getattr(self, 'click_mode_combobox', None),
+            getattr(self, 'schedule_mode_combobox', None),
+            getattr(self, 'theme_combobox', None),
+        ]:
+            if combobox:
+                combobox.selection_clear()
+        self.root.focus_set()
+
     def on_adb_device_serial_change(self, event=None):
         """ADB设备Serial号变更回调，保存到配置"""
         try:
@@ -1913,6 +1926,9 @@ class AutoClickGUI:
 
         # 日志提示用户
         self.log(f"✅ 点击模式已切换为：{selected_text}")
+        
+        self.click_mode_combobox.selection_clear()
+        self.root.focus_set()
 
     def _on_task_group_change(self, event):
         """任务组下拉框选中变化时，实时保存current_task_group到配置"""
@@ -1937,6 +1953,9 @@ class AutoClickGUI:
         except Exception as e:
             self.log(f"⚠️ 保存任务组配置失败：{str(e)}")
             messagebox.showerror("错误", f"保存任务组配置失败：{e}")
+        finally:
+            self.task_combobox.selection_clear()
+            self.root.focus_set()
 
     def _on_window_change(self, event):
         """窗口切换时，实时更新系统依赖的3个核心配置字段"""
@@ -1965,6 +1984,9 @@ class AutoClickGUI:
         except Exception as e:
             self.log(f"⚠️ 保存窗口配置失败：{str(e)}")
             messagebox.showerror("错误", f"保存窗口配置失败：{e}")
+        finally:
+            self.window_combobox.selection_clear()
+            self.root.focus_set()
 
     def _run_adb_command(self):
         """执行用户输入的完整ADB命令（需带adb前缀），彻底剥离前缀避免重复"""
@@ -2058,6 +2080,7 @@ class AutoClickGUI:
         # ========== 标签页铺满 ==========
         main_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         main_notebook.enable_traversal()
+        main_notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         
         # 1. 目标窗口标签页（精简为下拉列表）
         window_frame = ttk.Frame(main_notebook)
@@ -2077,6 +2100,7 @@ class AutoClickGUI:
             width=60  # 紧凑宽度
         )
         self.window_combobox.bind("<<ComboboxSelected>>", self._on_window_change)
+        self.window_combobox.bind("<FocusOut>", lambda e: self.window_combobox.selection_clear())
         self.window_combobox.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
         
         # 操作按钮：刷新+模糊匹配配置
@@ -2159,6 +2183,7 @@ class AutoClickGUI:
         self.task_combobox = ttk.Combobox(task_group_frame, textvariable=self.task_var, state="readonly")
         self.task_combobox.pack(side=tk.LEFT, padx=5, pady=3)
         self.task_combobox.bind("<<ComboboxSelected>>", self._on_task_group_change)
+        self.task_combobox.bind("<FocusOut>", lambda e: self.task_combobox.selection_clear())
         ttk.Button(task_group_frame, text="刷新", command=self._load_task_groups).pack(side=tk.LEFT, padx=5, pady=3)
         ttk.Button(task_group_frame, text="新建", command=self._new_task_group).pack(side=tk.LEFT, padx=5, pady=3)
         ttk.Button(task_group_frame, text="编辑", command=self._edit_task_config).pack(side=tk.LEFT, padx=5, pady=3)
@@ -2201,6 +2226,7 @@ class AutoClickGUI:
             width=8
         )
         self.schedule_mode_combobox.pack(side=tk.LEFT, padx=5, pady=3)
+        self.schedule_mode_combobox.bind("<FocusOut>", lambda e: self.schedule_mode_combobox.selection_clear())
         self.schedule_mode_combobox.current(0)
         
         ttk.Button(
@@ -2225,6 +2251,7 @@ class AutoClickGUI:
         )
         self.click_mode_combobox.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
         self.click_mode_combobox.bind("<<ComboboxSelected>>", self._on_click_mode_change)
+        self.click_mode_combobox.bind("<FocusOut>", lambda e: self.click_mode_combobox.selection_clear())
 
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
@@ -2236,6 +2263,7 @@ class AutoClickGUI:
             values=["Win32GUI", "PrintWindow", "Win32Memory", "ADB"], state="readonly", width=35)
         screenshot_mode_combo.grid(row=1, column=1, padx=5, pady=3, sticky="w")
         screenshot_mode_combo.bind("<<ComboboxSelected>>", self.on_screenshot_mode_change)
+        screenshot_mode_combo.bind("<FocusOut>", lambda e: screenshot_mode_combo.selection_clear())
 
         # ========== ADB设备Serial号配置 ==========
         ttk.Label(config_frame, text="ADB设备Serial：").grid(row=2, column=0, padx=5, pady=3, sticky="w")
@@ -2299,6 +2327,7 @@ class AutoClickGUI:
             adb_basic_frame, textvariable=adb_enabled_var, values=["是", "否"], width=12, state="readonly"
         )
         adb_enabled_combobox.grid(row=0, column=1, padx=2, pady=3, sticky="w")
+        adb_enabled_combobox.bind("<FocusOut>", lambda e: adb_enabled_combobox.selection_clear())
 
         # ADB使用模式（与启用控制同一行）
         current_mode_text = {v: k for k, v in mode_map.items()}.get(adb_usage_mode, "内置")
@@ -2311,6 +2340,7 @@ class AutoClickGUI:
             adb_basic_frame, textvariable=adb_mode_var, values=["内置", "自定义", "系统环境变量", "Alas附带"], width=12, state="readonly"
         )
         adb_mode_combobox.grid(row=0, column=3, padx=2, pady=3, sticky="w")
+        adb_mode_combobox.bind("<FocusOut>", lambda e: adb_mode_combobox.selection_clear())
 
         # 2. 自定义ADB路径（包含验证ADB环境按钮）
         adb_path_frame = ttk.LabelFrame(adb_frame, text="自定义ADB路径", padding="5")
@@ -2481,6 +2511,7 @@ class AutoClickGUI:
             width=25
         )
         self.theme_combobox.grid(row=0, column=1, padx=5, pady=3, sticky="w")
+        self.theme_combobox.bind("<FocusOut>", lambda e: self.theme_combobox.selection_clear())
         
         saved_theme_id = load_theme_config(MAIN_CONFIG_PATH)
         if saved_theme_id:
