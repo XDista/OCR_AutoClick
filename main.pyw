@@ -8,7 +8,7 @@ import json
 import webbrowser
 import numpy as np
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, simpledialog, filedialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 import subprocess
 import sys
 import pygetwindow as gw
@@ -25,14 +25,26 @@ from PIL import ImageGrab, ImageTk, Image
 from pynput import keyboard
 from pynput.keyboard import Key
 from pathlib import Path
+from theme.theme_manager import (
+    apply_theme, apply_theme_to_log, get_log_colors,
+    get_theme_names, get_theme_name, get_theme_id_by_name,
+    load_theme_config, save_theme_config
+)
 
 # 版本信息 - 集中管理，便于维护
-APP_VERSION = "1.4.3"
-UPDATE_TIME = "2026-05-23 22:10:00"
+APP_VERSION = "1.4.4"
+UPDATE_TIME = "2026-09-11 12:00:00"
 
 # 解决高DPI显示模糊问题
 try:
     ctypes.windll.user32.SetProcessDPIAware()
+except:
+    pass
+
+# 启用 Windows 应用级暗色模式支持（必须在窗口创建前调用）
+# 设为 AllowDark(1) 后，各窗口可独立调用 AllowDarkModeForWindow 开关暗色
+try:
+    ctypes.windll.uxtheme[135](1)  # SetPreferredAppMode(1) = AllowDark
 except:
     pass
 
@@ -68,7 +80,6 @@ def send_windows_notification(title, message):
         )
     except Exception as e:
         print(f"Toast通知失败，使用备用弹窗：{e}")
-        # 备用弹窗逻辑（同上）
         win32gui.MessageBox(
             0,
             message,
@@ -127,6 +138,11 @@ def init_main_config():
         "adbscrxy_resizable": "1" 
     }
 
+    # ========== 新增：Theme节点默认配置 ==========
+    default_theme_config = {
+        "current_theme": "light"
+    }
+
     # 写入GENERAL默认配置
     for key, value in default_general_config.items():
         if key not in config["GENERAL"]:
@@ -141,6 +157,13 @@ def init_main_config():
     for key, value in default_window_config.items():
         if key not in config["WindowConfig"]:
             config["WindowConfig"][key] = value
+
+    # 写入Theme默认配置
+    if "Theme" not in config:
+        config["Theme"] = {}
+    for key, value in default_theme_config.items():
+        if key not in config["Theme"]:
+            config["Theme"][key] = value
     
     with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
@@ -327,8 +350,10 @@ def validate_adb_environment():
         return False, f"ADB可执行但版本检查失败：{str(e)}"
 
 # 添加执行动作的函数
-def execute_action(window, action_type, params, stop_flag=False):  
-    """执行具体动作"""
+def execute_action(window, action_type, params, stop_flag=False, click_mode="sendmessage", action_config=None):
+    """执行具体动作
+    :param action_config: 预读取的配置字典，包含 adb_device_serial, adb_usage_mode 等，避免重复读取 config.ini
+    """
 
     # 先检查停止标志，任何动作执行前都优先终止
     # 实时检测停止标志（而非依赖传入的静态值）
@@ -338,13 +363,7 @@ def execute_action(window, action_type, params, stop_flag=False):
     if action_type == "click":
         if len(params) >= 2:
             x, y = int(params[0]), int(params[1])
-            # ---------------------- 新增：读取当前点击模式配置 ----------------------
-            main_config = configparser.ConfigParser()
-            main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-            click_mode = main_config["GENERAL"]["click_mode"]
-            # ----------------------------------------------------------------------
-            
-            # 传递点击模式到 auto_click
+            # 点击模式由调用方传入，避免重复读取配置
             auto_click(window, x, y, times=1, interval=0.1, click_mode=click_mode)
             return f"执行点击: ({x},{y}) | 模式: {click_mode}"
         else:
@@ -381,11 +400,7 @@ def execute_action(window, action_type, params, stop_flag=False):
         if not keys:
             return "press动作参数不足（需指定至少1个按键名称，如enter、ctrl,a）"
         
-        # 读取点击模式配置
-        main_config = configparser.ConfigParser()
-        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        click_mode = main_config["GENERAL"]["click_mode"]
-        
+        # 点击模式已由调用方传入，直接使用
         try:
             if click_mode == "sendmessage" and window:
                 # SendMessage模式：向目标窗口发送键盘消息
@@ -485,10 +500,7 @@ def execute_action(window, action_type, params, stop_flag=False):
             y2 = int(float(params[3]))
             t = float(params[4])        # 拖动时长（秒）
             
-            # 读取当前点击模式配置
-            main_config = configparser.ConfigParser()
-            main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-            click_mode = main_config["GENERAL"]["click_mode"]
+            # 点击模式已由调用方传入，直接使用
             hwnd = window._hWnd
 
             if click_mode == "pyautogui":
@@ -560,10 +572,8 @@ def execute_action(window, action_type, params, stop_flag=False):
         if not raw_adb_cmd.startswith("adb "):
             return f"ADB命令格式错误：必须以'adb '开头（当前：{raw_adb_cmd}）"
         
-        # 读取配置，替换ADB执行路径
-        main_config = configparser.ConfigParser()
-        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        adb_usage_mode = main_config["ADBConfig"].get("adb_usage_mode", "1")
+        # ADB使用模式由调用方传入，直接使用
+        adb_usage_mode = action_config.get("adb_usage_mode", "1") if action_config else "1"
         _, adb_path = get_adb_executable_path()
 
         # 构建最终执行命令
@@ -587,8 +597,8 @@ def execute_action(window, action_type, params, stop_flag=False):
                 timeout=30
             )
             # 输出执行结果
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
             return f"ADB命令执行成功：{final_adb_cmd}\n  输出：{stdout}\n  错误输出：{stderr}"
         except subprocess.CalledProcessError as e:
             return f"ADB命令执行失败（返回码：{e.returncode}）：{final_adb_cmd}\n  输出：{e.stdout}\n  错误：{e.stderr}"
@@ -603,10 +613,8 @@ def execute_action(window, action_type, params, stop_flag=False):
         if not adb_valid:
             return f"Serial ADB执行前置检查失败：{adb_msg}"
         
-        # 第二步：读取配置中的adb_device_serial
-        main_config = configparser.ConfigParser()
-        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        adb_device_serial = main_config["ADBConfig"].get("adb_device_serial", "").strip()
+        # 第二步：ADB设备Serial由调用方传入，直接使用
+        adb_device_serial = action_config.get("adb_device_serial", "") if action_config else ""
         
         # 第三步：处理ADB命令参数（核心：自动添加serial）
         if not params or not params[0]:
@@ -627,7 +635,8 @@ def execute_action(window, action_type, params, stop_flag=False):
                 processed_adb_cmd = f"adb -s {adb_device_serial} {adb_cmd_parts[1]}"
         
         # 第四步：替换ADB执行路径（复用原有adbcall逻辑）
-        adb_usage_mode = main_config["ADBConfig"].get("adb_usage_mode", "1")
+        # ADB使用模式由调用方传入，直接使用
+        adb_usage_mode = action_config.get("adb_usage_mode", "1") if action_config else "1"
         _, adb_path = get_adb_executable_path()
 
         # 构建最终执行命令
@@ -651,8 +660,8 @@ def execute_action(window, action_type, params, stop_flag=False):
                 timeout=30
             )
             # 输出执行结果（包含原始命令和处理后命令，方便排查）
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
             return (
                 f"Serial ADB命令执行成功：\n"
                 f"  原始命令：{raw_adb_cmd}\n"
@@ -706,8 +715,8 @@ def execute_action(window, action_type, params, stop_flag=False):
                 timeout=60
             )
             # 输出执行结果
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
             return f"CMD命令执行成功：{cmd}\n  输出：{stdout}\n  错误输出：{stderr}"
         except subprocess.CalledProcessError as e:
             return f"CMD命令执行失败（返回码：{e.returncode}）：{cmd}\n  输出：{e.stdout}\n  错误：{e.stderr}"
@@ -1079,19 +1088,13 @@ def capture_window_win32gui(hwnd):
         app.log(f"win32gui截图失败：{str(e)}")
         return None
 
-def capture_window(window):
+def capture_window(window, screenshot_mode="Win32GUI", adb_device_serial=""):
     hdc_window = None
     hdc_memdc = None
     hbitmap = None
     hwnd = None
     
     try:
-        # ========== 读取截图模式配置 ==========
-        main_config = configparser.ConfigParser()
-        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        screenshot_mode = main_config["GENERAL"]["screenshot_mode"]
-        adb_device_serial = main_config["ADBConfig"]["adb_device_serial"]
-        # =====================================
         
         # ========== ADB截图模式（无需窗口句柄） ==========
         if screenshot_mode == "ADB":
@@ -1181,15 +1184,20 @@ def bring_window_to_front(window):
                 return
         raise RuntimeError("窗口激活失败，可能被其他程序阻塞")
     except Exception as e:
-        print(f"窗口置顶失败：{e}")
+        try:
+            if app:
+                app.log(f"⚠️ 窗口置顶失败：{e}")
+        except:
+            pass
         raise
 
-def template_match(screenshot, ref_image_path, threshold=0.9):
+def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.05):
     """
     支持同比例拉伸的多尺度模板匹配（兼容原有逻辑）
-    :param screenshot: 窗口截图（OpenCV BGR格式）
+    :param screenshot_gray: 窗口截图（**已转换好的灰度图**，由调用方预处理，避免重复cvtColor）
     :param ref_image_path: 参考图路径
     :param threshold: 匹配阈值
+    :param match_step: 多尺度匹配步长（由调用方传入，避免重复读取配置）
     :return: (是否匹配成功, 最高相似度)
     """
     # 1. 读取参考图（转为灰度图，减少计算量，支持中文路径）
@@ -1198,30 +1206,25 @@ def template_match(screenshot, ref_image_path, threshold=0.9):
         ref_pil = Image.open(ref_image_path).convert('L')
         ref_img = np.array(ref_pil)
     except FileNotFoundError:
-        print(f"错误：参考图不存在 → {ref_image_path}")
+        try:
+            if app:
+                app.log(f"⚠️ 错误：参考图不存在 → {ref_image_path}")
+        except:
+            pass
         return False, 0.0
     except Exception as e:
-        print(f"错误：读取参考图失败 → {e}")
+        try:
+            if app:
+                app.log(f"⚠️ 错误：读取参考图失败 → {e}")
+        except:
+            pass
         return False, 0.0
 
-    # 2. 处理截图（转为灰度图）
-    if screenshot is None or screenshot.size == 0:
+    # 2. 截图已由调用方转为灰度图，直接校验可用性
+    if screenshot_gray is None or screenshot_gray.size == 0:
         return False, 0.0
-    screenshot_gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
     ref_h, ref_w = ref_img.shape[:2]  # 原始参考图尺寸
     max_similarity = 0.0  # 存储所有尺度下的最高相似度
-
-    # ========== 新增：读取配置中的匹配步长 ==========
-    main_config = configparser.ConfigParser()
-    main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-    # 读取步长，兼容配置缺失/格式错误，默认0.05
-    try:
-        match_step = float(main_config["GENERAL"].get("template_match_step", "0.05"))
-        # 步长合法性校验，限制0.001~0.5（避免过细/过粗）
-        match_step = max(0.001, min(0.5, match_step))
-    except ValueError:
-        match_step = 0.05
-    # =============================================
 
     # 3. 多尺度匹配核心：生成0.1~4.0倍的缩放比例（覆盖常见拉伸范围）
     # 步长越小越精准，但耗时略增；桌面应用建议0.1~0.2即可
@@ -1319,22 +1322,61 @@ def worker(app):
     scheduled_once_triggered = False
     stop_source = ""  # 记录停止来源（manual/stop_action）
     # 新增：每个子任务的连续匹配成功计数器，key=任务名，value=连续成功次数，初始化为0
-    task_continuous_match = {}     
+    task_continuous_match = {}
+    # 瓶颈5优化：缓存目标窗口对象，避免每轮迭代枚举所有窗口
+    # 利用 HWND 稳定性：浏览器切换/拖拽标签页时，原窗口句柄不变，缓存仍然有效
+    cached_target_window = None
+    
+    # 瓶颈4修复：捕获当前世代号，用于旧线程自检退出
+    # 当用户重启时，app.worker_generation 递增，旧 worker 在检测点发现不匹配后自行退出
+    worker_gen = app.worker_generation
     
     while not app.stop_flag:
+        # 世代号检测：如果已被新 worker 取代，立即退出
+        if worker_gen != app.worker_generation:
+            app.log("🔁 检测到新工作线程启动，旧线程自动退出")
+            break
+            
         is_normal_execution = True
         error_msg = ""
         
         try:
+            # ========== 优化：一轮迭代中只读取一次配置，缓存到局部变量 ==========
             main_config = configparser.ConfigParser()
             main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+            
             freq = float(main_config["GENERAL"]["recognition_frequency"])
             start_time_str = main_config["GENERAL"]["next_start_time"]
             task_group = main_config["GENERAL"]["current_task_group"]
             max_consecutive_errors = int(main_config["GENERAL"]["max_execution_errors"])
-            
             enable_schedule = main_config["GENERAL"].getboolean("enable_schedule")
             schedule_mode = main_config["GENERAL"]["schedule_mode"]
+            
+            # 缓存窗口匹配相关配置，用于缓存有效性校验（标题/进程变化时需重新枚举）
+            target_window_title = main_config["GENERAL"].get("target_window_title", "").strip()
+            target_program_name = main_config["GENERAL"].get("target_program_name", "").strip()
+            
+            # 缓存截图相关配置，避免 capture_window() 重复读取
+            screenshot_mode = main_config["GENERAL"]["screenshot_mode"]
+            adb_device_serial = main_config["ADBConfig"]["adb_device_serial"]
+            
+            # 缓存模板匹配步长，避免 template_match() 重复读取
+            try:
+                match_step = float(main_config["GENERAL"].get("template_match_step", "0.05"))
+                match_step = max(0.001, min(0.5, match_step))
+            except ValueError:
+                match_step = 0.05
+            
+            # 缓存点击模式，避免 execute_action() 重复读取
+            click_mode = main_config["GENERAL"]["click_mode"]
+            
+            # 缓存 ADB 相关配置，避免 execute_action() 中 adbcall/serial_adbcall 重复读取
+            adb_usage_mode = main_config["ADBConfig"].get("adb_usage_mode", "1")
+            action_config = {
+                "adb_device_serial": adb_device_serial,
+                "adb_usage_mode": adb_usage_mode,
+            }
+            # =====================================================================
             
             now = datetime.datetime.now()
             need_wait = False
@@ -1364,9 +1406,40 @@ def worker(app):
                     app.log(f"⚠️ {error_msg}")
             
             if not need_wait:
-                # 从配置获取目标窗口
-                target_window = get_target_window_from_config()
-                if not target_window:
+                # 瓶颈5优化：优先复用缓存的窗口对象（避免每轮枚举所有窗口）
+                # 仅当缓存失效（窗口关闭/隐藏/无标题）时才重新枚举
+                target_window = None
+                if cached_target_window is not None:
+                    try:
+                        hwnd = cached_target_window._hWnd
+                        if is_window_visible(hwnd):
+                            # 基础校验通过后，额外检查模糊标题匹配是否仍然成立
+                            title_valid = True
+                            if target_window_title:
+                                current_title = win32gui.GetWindowText(hwnd)
+                                if target_window_title not in current_title:
+                                    # 标题已不匹配（如切换到不包含关键字的标签页），缓存失效
+                                    app.log(f"缓存窗口标题已变更（预期包含'{target_window_title}'，当前：'{current_title}'），重新枚举...")
+                                    title_valid = False
+                            
+                            if title_valid:
+                                target_window = cached_target_window
+                            else:
+                                cached_target_window = None
+                        else:
+                            # 缓存窗口已失效（如浏览器关闭），日志记录后重新查找
+                            app.log(f"缓存窗口失效（句柄：{hwnd}），重新枚举目标窗口...")
+                            cached_target_window = None
+                    except Exception as e:
+                        app.log(f"缓存窗口访问异常：{e}，重新枚举...")
+                        cached_target_window = None
+                
+                if target_window is None:
+                    # 缓存未命中/失效，走完整的枚举流程
+                    target_window = get_target_window_from_config()
+                    cached_target_window = target_window  # 更新缓存（可能为None）
+                
+                if not target_window:                    
                     is_normal_execution = False
                     error_msg = "未找到目标程序窗口（请检查配置的进程/标题关键词）"
                     app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
@@ -1395,7 +1468,8 @@ def worker(app):
                         while current_task_index < len(task_list) and not stop_execution:
 
                             # 每个Task执行前重新截图（保留原有失败逻辑）
-                            screenshot = capture_window(target_window)
+                            # 传入缓存的截图模式配置，避免重复读取 config.ini
+                            screenshot = capture_window(target_window, screenshot_mode=screenshot_mode, adb_device_serial=adb_device_serial)
                             if screenshot is None:
                                 # 完全复用原有截图失败逻辑，不做任何修改
                                 is_normal_execution = False
@@ -1406,6 +1480,8 @@ def worker(app):
                                 break
                             else:
                                 app.log(f"✅ 任务[{task_list[current_task_index]}]截图成功 - 尺寸：{screenshot.shape[1]}x{screenshot.shape[0]}")
+                                # 优化：截图仅转一次灰度，后续所有匹配复用该灰度图
+                                screenshot_gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
 
                             # ：进入任务前先检查停止，立即终止循环
                             if app.stop_flag:
@@ -1461,7 +1537,8 @@ def worker(app):
                                         if isinstance(image_config, str):
                                             # 原版格式：单个图像
                                             ref_path = os.path.join(REFS_DIR, image_config)
-                                            match_result = template_match(screenshot, ref_path, threshold)
+                                            # 传入缓存的 match_step，避免重复读取 config.ini
+                                            match_result = template_match(screenshot_gray, ref_path, threshold, match_step=match_step)
                                             if len(match_result) == 2:
                                                 is_match, similarity = match_result
                                             elif len(match_result) == 3:
@@ -1477,21 +1554,25 @@ def worker(app):
                                             
                                             if operator == "and":
                                                 # AND逻辑：所有图像都必须匹配成功
+                                                # 短路优化：任一图像不匹配即终止，无需继续检查
                                                 all_matched = True
                                                 max_sim = 0.0
                                                 unmatched_images = []
                                                 for img_name in image_list:
                                                     img_ref_path = os.path.join(REFS_DIR, img_name)
-                                                    match_result = template_match(screenshot, img_ref_path, threshold)
+                                                    # 传入缓存的 match_step，避免重复读取 config.ini
+                                                    match_result = template_match(screenshot_gray, img_ref_path, threshold, match_step=match_step)
                                                     if len(match_result) >= 2:
                                                         img_match, img_sim = match_result[0], match_result[1]
                                                         max_sim = max(max_sim, img_sim)
                                                         if not img_match:
                                                             all_matched = False
                                                             unmatched_images.append(f"{img_name}(相似度:{img_sim:.3f})")
+                                                            break  # AND短路：一张失败即终止
                                                     else:
                                                         all_matched = False
                                                         unmatched_images.append(f"{img_name}(匹配失败)")
+                                                        break  # AND短路：一张失败即终止
                                                 is_match = all_matched
                                                 similarity = max_sim
                                                 if all_matched:
@@ -1501,18 +1582,21 @@ def worker(app):
 
                                             elif operator == "or":
                                                 # OR逻辑：任一图像匹配成功即可
+                                                # 短路优化：一旦有图像匹配成功即终止，无需继续检查
                                                 any_matched = False
                                                 max_sim = 0.0
                                                 matched_images = []
                                                 for img_name in image_list:
                                                     img_ref_path = os.path.join(REFS_DIR, img_name)
-                                                    match_result = template_match(screenshot, img_ref_path, threshold)
+                                                    # 传入缓存的 match_step，避免重复读取 config.ini
+                                                    match_result = template_match(screenshot_gray, img_ref_path, threshold, match_step=match_step)
                                                     if len(match_result) >= 2:
                                                         img_match, img_sim = match_result[0], match_result[1]
                                                         max_sim = max(max_sim, img_sim)
                                                         if img_match:
                                                             any_matched = True
                                                             matched_images.append(f"{img_name}(相似度:{img_sim:.3f})")
+                                                            break  # OR短路：一张匹配即终止
                                                     else:
                                                         pass
                                                 is_match = any_matched
@@ -1592,8 +1676,8 @@ def worker(app):
                                         app.log("  - 检测到停止指令，终止当前动作执行")
                                         break
                                     
-                                    # 执行动作（原有逻辑完全保留）
-                                    result = execute_action(target_window, action_type, params, stop_flag=app.stop_flag)
+                                    # 执行动作（传入缓存的 click_mode 和 action_config，避免重复读取 config.ini）
+                                    result = execute_action(target_window, action_type, params, stop_flag=app.stop_flag, click_mode=click_mode, action_config=action_config)
 
                                     if isinstance(result, tuple):
                                         log_msg = result[0]
@@ -1633,9 +1717,7 @@ def worker(app):
                                 app.log(f"⚠️ 任务执行错误：{error_msg}")
                                 break
                         
-                        if task_error:
-                            is_normal_execution = False
-                            app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
+                        
                         
                         if task_error:
                             is_normal_execution = False
@@ -1661,12 +1743,11 @@ def worker(app):
                 break
             
             if not need_wait:
-                # 改为多段短sleep，便于快速响应停止信号
-                remaining_time = freq
-                sleep_chunk = 0.1  # 每次sleep 0.1秒
-                while remaining_time > 0 and not app.stop_flag:
-                    time.sleep(min(sleep_chunk, remaining_time))
-                    remaining_time -= sleep_chunk
+                # 优化：使用 threading.Event.wait() 替代分片 sleep
+                # - 单次系统调用，比 10 次 time.sleep(0.1) 更高效
+                # - stop_event 被设置时立即返回，比轮询 stop_flag 响应更快
+                # - 无需手动计数器，语义更清晰
+                app.stop_event.wait(timeout=freq)
         
         except Exception as e:
             is_normal_execution = False
@@ -1674,9 +1755,7 @@ def worker(app):
             consecutive_error_count += 1
             app.log(f"❌ 未预期的执行错误：{error_msg}（连续错误：{consecutive_error_count}/{max_consecutive_errors}）")
             
-            main_config = configparser.ConfigParser()
-            main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-            max_consecutive_errors = int(main_config["GENERAL"]["max_execution_errors"])
+            # 异常处理中复用已缓存的 max_consecutive_errors，避免重复读取
             if consecutive_error_count >= max_consecutive_errors:
                 final_msg = f"连续执行错误达到{max_consecutive_errors}次，任务已停止"
                 app.log(final_msg)
@@ -1705,6 +1784,12 @@ class AutoClickGUI:
         self.root.geometry(selfgeometry)#主窗口长宽
         self.root.resizable(selfxy_resizable, selfxy_resizable)
 
+        saved_theme = load_theme_config(MAIN_CONFIG_PATH)
+        if saved_theme and saved_theme in ("light", "dark"):
+            apply_theme(root, saved_theme)
+        else:
+            apply_theme(root, "light")
+
         self.thread = None
         self.auto_scroll = True
         self.window_list = []  # 存储窗口信息（display: 显示文本, hwnd: 句柄, title: 标题, process_name: 进程名）
@@ -1712,17 +1797,8 @@ class AutoClickGUI:
         self.adb_screenshot_path = os.path.join(BASE_DIR, "adb_screenshot.pyw")
 
         self.stop_event = threading.Event()  # 线程安全的Event
-        # 兼容原有stop_flag属性的读写逻辑
-        @property
-        def stop_flag(self):
-            return self.stop_event.is_set()
-        
-        @stop_flag.setter
-        def stop_flag(self, value):
-            if value:
-                self.stop_event.set()
-            else:
-                self.stop_event.clear()
+        self.worker_generation = 0  # worker世代计数器，每次重启递增，用于旧线程自检退出
+        self.stop_flag = False  # 线程停止标志，由_start()和_stop()控制
 
         # 新增↓ 热键相关初始化
         self.hotkey_keys = {Key.f9, Key.f10}  # F9+F10组合键
@@ -1730,14 +1806,11 @@ class AutoClickGUI:
         self.key_listener = None
         self._init_hotkey_listener()  # 初始化热键监听
         
-        init_main_config()
         self._create_widgets()
         self._load_task_groups()
         self._load_schedule_config()
         self._load_window_combobox()  # 加载窗口下拉列表
         self._load_default_window_from_config()  # 读取配置中的默认窗口
-        # 新增↓ 绑定窗口关闭事件（清理热键监听）
-        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
     def _init_hotkey_listener(self):
         """初始化F9+F10组合键监听"""
@@ -1982,11 +2055,9 @@ class AutoClickGUI:
         # 主布局：移除坐标拾取标签页，保留原有结构
         main_notebook = ttk.Notebook(self.root)
         
-        # ========== 统一标签页按钮宽度和文字居中 ==========
-        style = ttk.Style()
-        style.configure('TNotebook.Tab', width=80, anchor=tk.CENTER)  # 设置标签页统一宽度为80像素，文字居中对齐
-        
+        # ========== 标签页铺满 ==========
         main_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        main_notebook.enable_traversal()
         
         # 1. 目标窗口标签页（精简为下拉列表）
         window_frame = ttk.Frame(main_notebook)
@@ -2395,6 +2466,42 @@ class AutoClickGUI:
         other_frame = ttk.Frame(main_notebook)
         main_notebook.add(other_frame, text="其他")
         
+        # 主题配置区域
+        theme_frame = ttk.LabelFrame(other_frame, text="主题配置", padding="10")
+        theme_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(theme_frame, text="选择主题：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
+        self.theme_var = tk.StringVar()
+        theme_display_names = get_theme_names()
+        self.theme_combobox = ttk.Combobox(
+            theme_frame,
+            textvariable=self.theme_var,
+            values=theme_display_names,
+            state="readonly",
+            width=25
+        )
+        self.theme_combobox.grid(row=0, column=1, padx=5, pady=3, sticky="w")
+        
+        saved_theme_id = load_theme_config(MAIN_CONFIG_PATH)
+        if saved_theme_id:
+            self.theme_var.set(get_theme_name(saved_theme_id))
+        else:
+            self.theme_var.set(get_theme_name("light"))
+        
+        def apply_selected_theme():
+            selected_display = self.theme_var.get()
+            selected_id = get_theme_id_by_name(selected_display)
+            if selected_id:
+                apply_theme(self.root, selected_id)
+                save_theme_config(selected_id, MAIN_CONFIG_PATH)
+                apply_theme_to_log(self.log_text, selected_id)
+                self.log(f"✅ 主题已切换为：{selected_display}")
+            else:
+                self.log(f"⚠️ 主题切换失败：{selected_display}")
+        
+        ttk.Button(theme_frame, text="应用主题", command=apply_selected_theme).grid(row=0, column=2, padx=5, pady=3, sticky="w")
+        ttk.Label(theme_frame, text="（切换后自动保存，重启后生效）", foreground="#666666").grid(row=0, column=3, padx=5, pady=3, sticky="w")
+        
         # 空白区域框架（内容待后续补充）
         empty_frame = ttk.LabelFrame(other_frame, text="功能区域", padding="10")
         empty_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -2470,10 +2577,33 @@ class AutoClickGUI:
         log_frame = ttk.LabelFrame(self.root, text="运行日志", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, state=tk.DISABLED) 
-        self.log_text.pack(fill=tk.BOTH, expand=True)
+        log_bg, log_fg = get_log_colors()
+        log_text_frame = ttk.Frame(log_frame)
+        log_text_frame.pack(fill=tk.BOTH, expand=True)
         
-    
+        self.log_text = tk.Text(log_text_frame, wrap=tk.WORD, state=tk.DISABLED, bg=log_bg, fg=log_fg)
+        log_scrollbar = ttk.Scrollbar(log_text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=log_scrollbar.set)
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        apply_theme_to_log(self.log_text)
+        
+        # 应用笔记本标签页铺满（延迟执行以确保宽度正确）
+        self.root.after(200, lambda: apply_theme(
+            self.root,
+            get_theme_id_by_name(self.theme_var.get()) if self.theme_var.get() else "light"
+        ))
+        # 立即重新应用主题（此时所有控件已创建），确保暗色模式正确设置所有子控件
+        apply_theme(
+            self.root,
+            get_theme_id_by_name(self.theme_var.get()) if self.theme_var.get() else "light"
+        )
+        # 延迟再次应用，确保所有控件完全就绪时再补一次 SetWindowTheme
+        self.root.after(150, lambda: apply_theme(
+            self.root,
+            get_theme_id_by_name(self.theme_var.get()) if self.theme_var.get() else "light"
+        ))
+
     # 新增打开坐标拾取脚本的方法
     def _open_screenxy(self):
             try:
@@ -2852,10 +2982,12 @@ class AutoClickGUI:
             messagebox.showerror("错误", f"无法打开文件：{str(e)}")
     
     def _start(self):
-        # ========== 修复：停止功能历史遗留问题 ==========
-        # 问题：当执行到中途手动停止后再启动，可能导致同一个动作重复执行
-        # 原因：启动前没有确保旧线程完全停止并重置状态
-        # 解决：启动新线程前，先确保旧线程完全停止
+        # ========== 修复：线程残留导致重复执行 ==========
+        # 问题：旧线程可能因 join 超时未退出，新线程启动后两个 worker 同时运行
+        # 解决：
+        #   1. 递增 worker_generation，旧 worker 在关键检查点发现世代不匹配自检退出
+        #   2. 先置位 stop_flag，然后等待旧线程
+        #   3. 最后重置 stop_flag 启动新线程
         # 
         # 针对低性能设备优化：
         # 1. 使用较长超时时间（3秒），确保慢速设备有足够时间完成线程清理
@@ -2863,6 +2995,7 @@ class AutoClickGUI:
         # 3. 使用非阻塞轮询方式，避免完全阻塞UI
         if self.thread and self.thread.is_alive():
             self.stop_flag = True
+            self.worker_generation += 1  # 递增世代号，让旧 worker 自检退出
             self.log("⏳ 等待旧线程停止...")
             
             # 低性能设备优化：使用3秒超时，并记录实际等待时间
@@ -2871,7 +3004,7 @@ class AutoClickGUI:
             wait_time = time.time() - start_wait
             
             if self.thread.is_alive():
-                self.log(f"⚠️ 旧线程停止超时（等待{wait_time:.2f}秒），可能仍在后台运行")
+                self.log(f"⚠️ 旧线程停止超时（等待{wait_time:.2f}秒），但世代号已递增，旧 worker 将在下次检测时自行退出")
             else:
                 self.log(f"✅ 旧线程已停止（耗时{wait_time:.2f}秒）")
         
@@ -3022,6 +3155,10 @@ if __name__ == "__main__":
     app = AutoClickGUI(root)
     
     def on_close():
+        # 停止热键监听
+        if app.key_listener and app.key_listener.is_alive():
+            app.key_listener.stop()
+        # 停止任务线程
         app._stop()
         root.destroy()
     root.protocol("WM_DELETE_WINDOW", on_close)
