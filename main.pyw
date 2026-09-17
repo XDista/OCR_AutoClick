@@ -8,32 +8,35 @@ import json
 import webbrowser
 import numpy as np
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog, filedialog
+from tkinter import ttk, messagebox, filedialog
 import subprocess
 import sys
 import pygetwindow as gw
 import psutil
 import win32gui
 import win32con
-import win32api
 import win32process
 import win32ui
 import pyautogui
 import ctypes
+from PIL import Image
 from plyer import notification
-from PIL import ImageGrab, ImageTk, Image
 from pynput import keyboard
 from pynput.keyboard import Key
-from pathlib import Path
 from theme.theme_manager import (
-    apply_theme, apply_theme_to_log, get_log_colors,
-    get_theme_names, get_theme_name, get_theme_id_by_name,
-    load_theme_config, save_theme_config
+    apply_theme,
+    apply_theme_to_log,
+    get_log_colors,
+    get_theme_names,
+    get_theme_name,
+    get_theme_id_by_name,
+    load_theme_config,
+    save_theme_config,
 )
 
 # 版本信息 - 集中管理，便于维护
 APP_VERSION = "1.4.4"
-UPDATE_TIME = "2026-09-11 12:00:00"
+UPDATE_TIME = "2026-09-18 00:00:00"
 
 # 解决高DPI显示模糊问题
 try:
@@ -48,7 +51,7 @@ try:
 except:
     pass
 
-# 基础路径与配置初始化 - 兼容.py与.exe
+# 基础路径与配置初始化
 # 当作为.py文件运行时，使用脚本所在目录
 # 当作为.exe文件运行时，使用当前工作目录（exe所在目录）
 if getattr(sys, 'frozen', False):
@@ -68,10 +71,9 @@ for dir_path in [REFS_DIR, TASKS_DIR, os.path.join(REFS_DIR, "subdir")]:
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
-# 系统通知函数（改用plyer，兼容新版Windows/Python）
+# 系统通知函数
 def send_windows_notification(title, message):
     try:
-        from plyer import notification
         notification.notify(
             title=title,
             message=message,
@@ -93,7 +95,7 @@ def init_main_config():
     if os.path.exists(MAIN_CONFIG_PATH):
         config.read(MAIN_CONFIG_PATH, encoding="utf-8")
 
-    # ========== 原有GENERAL节点保留 ==========
+    # ========== GENERAl节点 ==========
     if "GENERAL" not in config:
         config["GENERAL"] = {} 
     # ==========创建ADBConfig节点 ==========
@@ -120,25 +122,25 @@ def init_main_config():
         "template_match_step": "0.05"       # 模板匹配步长，默认0.05
     }
     
-    # ========== 新增：ADBConfig节点默认配置 ==========
+    # ========== ADBConfig节点默认配置 ==========
     default_adb_config = {
         "adb_enabled": "1",             # 1启用ADB检查，0忽略ADB配置
         "adb_usage_mode": "1",          # 1:脚本目录下adb\platform-tools\adb.exe（默认）；2:自定义路径；3:系统环境变量
         "adb_position": "",             # 自定义ADB路径（仅mode=2时生效）
-        "adb_device_serial": ""         # 新增：设备Serial号
+        "adb_device_serial": ""         # 设备Serial号
     }
 
-    # ========== 新增：WindowConfig节点默认配置（核心修改2） ==========
+    # ========== WindowConfig节点默认配置 ==========
     default_window_config = {
         "selfgeometry": "1200x600",  # 窗口长宽，格式axb（默认800x600）
-        "selfxy_resizable": "1" ,    # 1=可改变脚本窗口尺寸，0=固定尺寸（默认可修改）
+        "selfxy_resizable": "1" ,    # 1=可改变脚本窗口尺寸，0=固定尺寸
         "scrgeometry": "820x460",
         "scrxy_resizable": "1" ,
         "adbscrgeometry":"700x450", 
         "adbscrxy_resizable": "1" 
     }
 
-    # ========== 新增：Theme节点默认配置 ==========
+    # ========== Theme节点默认配置 ==========
     default_theme_config = {
         "current_theme": "light"
     }
@@ -169,9 +171,8 @@ def init_main_config():
         config.write(f)
     return config
 
-# 修改配置初始化函数
+# 任务配置初始化
 def init_task_config(task_group_name):
-    # 后缀从.ini改为.json
     task_config_path = os.path.join(TASKS_DIR, f"{task_group_name}.json")
     # 定义用户指定的JSON格式配置，原生数据类型（无字符串包装）
     default_config = {
@@ -223,10 +224,10 @@ def init_task_config(task_group_name):
         }
     }
     if not os.path.exists(task_config_path):
-        # 写入JSON文件，带缩进保证可读性，兼容中文
+        # 写入JSON文件
         with open(task_config_path, "w", encoding="utf-8") as f:
             json.dump(default_config, f, ensure_ascii=False, indent=4)
-    # 读取JSON并返回（替代原configparser对象）
+    # 读取JSON配置并返回
     with open(task_config_path, "r", encoding="utf-8") as f:
         task_config = json.load(f)
     return task_config
@@ -319,7 +320,7 @@ def get_adb_executable_path():
 
 def validate_adb_environment():
     """验证ADB环境是否可用，返回：(是否可用, 提示信息)"""
-    # ---------------------- 新增：读取adb_usage_mode配置 ----------------------
+    # ---------------------- 读取adb_usage_mode配置 ----------------------
     main_config = configparser.ConfigParser()
     main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
     adb_usage_mode = main_config["ADBConfig"].get("adb_usage_mode", "1")  # 与get_adb_executable_path逻辑一致
@@ -358,7 +359,7 @@ def execute_action(window, action_type, params, stop_flag=False, click_mode="sen
     # 先检查停止标志，任何动作执行前都优先终止
     # 实时检测停止标志（而非依赖传入的静态值）
     if app and app.stop_flag:
-        return "已触发停止指令，终止动作执行", True  # 复用原有stop的返回格式
+        return "已触发停止指令，终止动作执行", True
     
     if action_type == "click":
         if len(params) >= 2:
@@ -608,7 +609,7 @@ def execute_action(window, action_type, params, stop_flag=False, click_mode="sen
             return f"ADB命令执行异常：{final_adb_cmd} | 错误：{str(e)}"
         
     elif action_type == "serial_adbcall":
-        # 第一步：检查ADB是否启用并验证环境（复用原有逻辑）
+        # 第一步：检查ADB是否启用并验证环境
         adb_valid, adb_msg = get_adb_executable_path()
         if not adb_valid:
             return f"Serial ADB执行前置检查失败：{adb_msg}"
@@ -634,7 +635,7 @@ def execute_action(window, action_type, params, stop_flag=False, click_mode="sen
             if len(adb_cmd_parts) == 2:
                 processed_adb_cmd = f"adb -s {adb_device_serial} {adb_cmd_parts[1]}"
         
-        # 第四步：替换ADB执行路径（复用原有adbcall逻辑）
+        # 第四步：替换ADB执行路径
         # ADB使用模式由调用方传入，直接使用
         adb_usage_mode = action_config.get("adb_usage_mode", "1") if action_config else "1"
         _, adb_path = get_adb_executable_path()
@@ -885,7 +886,7 @@ def capture_adb_screenshot(device_serial=""):
 def capture_window_memory(hwnd):
     """
     从窗口内存直接读取像素（Win32 Memory模式），返回OpenCV BGR格式图像
-    修复：仅读取窗口客户区（排除标题栏/边框），解决非客户区截取问题
+    仅读取窗口客户区（排除标题栏/边框），不包含非客户区
     :param hwnd: 窗口句柄
     :return: OpenCV BGR图像 / None（失败）
     """
@@ -894,13 +895,13 @@ def capture_window_memory(hwnd):
         window_rect = win32gui.GetWindowRect(hwnd)
         window_left, window_top = window_rect[0], window_rect[1]
         
-        # 2. 获取客户区的屏幕坐标+尺寸（复用现有函数）
+        # 2. 获取客户区的屏幕坐标和尺寸
         client_left, client_top, client_width, client_height = get_window_client_rect(hwnd)
         if client_width <= 0 or client_height <= 0:
             app.log(f"窗口客户区尺寸无效：{client_width}x{client_height}")
             return None
         
-        # 3. 核心修复：计算客户区在「窗口自身坐标系」内的偏移量
+        # 3. 计算客户区在窗口自身坐标系内的偏移量
         # （窗口自身坐标系的(0,0) = 窗口左上角的屏幕坐标）
         offset_x = client_left - window_left  # 客户区x轴在窗口内的偏移
         offset_y = client_top - window_top  # 客户区y轴在窗口内的偏移
@@ -918,7 +919,7 @@ def capture_window_memory(hwnd):
         bmp.CreateCompatibleBitmap(hdc_mem, client_width, client_height)
         mem_dc.SelectObject(bmp)
 
-        # 6. 修复BitBlt源坐标：从客户区在窗口内的偏移位置开始拷贝
+        # 6. BitBlt源坐标：从客户区在窗口内的偏移位置开始拷贝
         mem_dc.BitBlt(
             (0, 0),  # 目标DC（内存位图）的起始坐标
             (client_width, client_height),  # 拷贝尺寸（客户区宽高）
@@ -931,7 +932,7 @@ def capture_window_memory(hwnd):
         signed_ints_array = bmp.GetBitmapBits(True)  # 获取位图像素数据（BGRA）
         img = np.frombuffer(signed_ints_array, dtype='uint8')
         img.shape = (client_height, client_width, 4)  # 调整为BGRA维度
-        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)  # 转为BGR（兼容原有逻辑）
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
         app.log(f"win32memory截图成功：{client_width}x{client_height} | 窗口内偏移：({offset_x},{offset_y})")
         return img
@@ -1066,7 +1067,7 @@ def capture_window_win32gui(hwnd):
             app.log("win32gui截图失败：窗口无效/不可见/无标题")
             return None
 
-        # 获取窗口客户区尺寸与绝对坐标（复用现有函数）
+        # 获取窗口客户区尺寸与绝对坐标
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
         width = right - left
         height = bottom - top
@@ -1113,7 +1114,7 @@ def capture_window(window, screenshot_mode="Win32GUI", adb_device_serial=""):
             img = capture_window_win32gui(hwnd)  # 调用独立函数
             return img
         
-        # ========== 新增：win32memory截图模式 ==========
+        # ========== win32memory截图模式 ==========
         elif screenshot_mode == "Win32Memory":
             if not window or not win32gui.IsWindow(window._hWnd):
                 app.log("win32memory截图失败：窗口句柄无效/已关闭")
@@ -1124,7 +1125,7 @@ def capture_window(window, screenshot_mode="Win32GUI", adb_device_serial=""):
                 app.log("win32memory截图失败：窗口不可见/无标题")
                 return None
             
-            # 调用新增的内存读取函数
+            # 调用内存读取函数
             img = capture_window_memory(hwnd)
             return img
 
@@ -1145,7 +1146,7 @@ def capture_window(window, screenshot_mode="Win32GUI", adb_device_serial=""):
         app.log(f"截图失败：{str(e)}")
         return None
     finally:
-        # 原有资源释放逻辑不变
+        # 资源释放
         if hbitmap and hdc_memdc:
             try:
                 hdc_memdc.SelectObject(None)
@@ -1273,7 +1274,7 @@ def auto_click(window, x, y, times=1, interval=0.5, click_mode="sendmessage"):
     
     hwnd = window._hWnd
 
-    # ---------------------- 模式1：win32gui.SendMessage 消息点击（原有逻辑）----------------------
+    # 模式1：SendMessage 消息点击
     if click_mode == "sendmessage":
         def send_mouse_down():
             l_param = y << 16 | x  # 窗口内相对坐标
@@ -1289,7 +1290,7 @@ def auto_click(window, x, y, times=1, interval=0.5, click_mode="sendmessage"):
             send_mouse_up()
             time.sleep(interval)
 
-    # ---------------------- 模式2：PyAutoGUI 硬件级点击（新增逻辑）----------------------
+    # 模式2：PyAutoGUI 硬件级点击
     elif click_mode == "pyautogui":
 
         client_left, client_top, _, _ = get_window_client_rect(hwnd)
@@ -1300,7 +1301,7 @@ def auto_click(window, x, y, times=1, interval=0.5, click_mode="sendmessage"):
         bring_window_to_front(window)
         time.sleep(0.1)  # 等待窗口置顶
         
-        # 4. 模拟物理级鼠标点击（替代SendMessage）
+        # 4. 模拟鼠标点击
         for _ in range(times):
             # 移动鼠标到目标坐标（可选，若需要可见鼠标移动）
             pyautogui.moveTo(screen_x, screen_y, duration=0.05)
@@ -1310,8 +1311,7 @@ def auto_click(window, x, y, times=1, interval=0.5, click_mode="sendmessage"):
             time.sleep(interval)
 
 
-# 工作线程（保留原有逻辑，适配新的窗口配置）
-# 修改worker函数中的任务执行部分
+# 工作线程
 current_task_index = 0 
 
 def worker(app):
@@ -1321,14 +1321,14 @@ def worker(app):
     consecutive_error_count = 0
     scheduled_once_triggered = False
     stop_source = ""  # 记录停止来源（manual/stop_action）
-    # 新增：每个子任务的连续匹配成功计数器，key=任务名，value=连续成功次数，初始化为0
+    #每个子任务的连续匹配成功计数器，key=任务名，value=连续成功次数，初始化为0
     task_continuous_match = {}
-    # 瓶颈5优化：缓存目标窗口对象，避免每轮迭代枚举所有窗口
+    #缓存目标窗口对象，避免每轮迭代枚举所有窗口
     # 利用 HWND 稳定性：浏览器切换/拖拽标签页时，原窗口句柄不变，缓存仍然有效
     cached_target_window = None
     
-    # 瓶颈4修复：捕获当前世代号，用于旧线程自检退出
-    # 当用户重启时，app.worker_generation 递增，旧 worker 在检测点发现不匹配后自行退出
+    # 捕获当前世代号，用于线程自检退出
+    # 当用户重启时，worker_generation 递增，旧线程检测到不匹配后自行退出
     worker_gen = app.worker_generation
     
     while not app.stop_flag:
@@ -1341,7 +1341,7 @@ def worker(app):
         error_msg = ""
         
         try:
-            # ========== 优化：一轮迭代中只读取一次配置，缓存到局部变量 ==========
+            # ========== 一轮迭代中读取一次配置，缓存到局部变量 ==========
             main_config = configparser.ConfigParser()
             main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
             
@@ -1393,7 +1393,7 @@ def worker(app):
                         time.sleep(min(wait_sec, freq))
                         need_wait = True
                     else:
-                        need_wait = False  # 关键修复：时间已到，允许任务执行
+                        need_wait = False  #时间已到，允许任务执行
                         if schedule_mode == "once":
                             app.log(f"【定时触发】仅一次模式已触发（{start_time_str}）")
                             scheduled_once_triggered = True
@@ -1406,7 +1406,7 @@ def worker(app):
                     app.log(f"⚠️ {error_msg}")
             
             if not need_wait:
-                # 瓶颈5优化：优先复用缓存的窗口对象（避免每轮枚举所有窗口）
+                # 优先使用缓存的窗口对象
                 # 仅当缓存失效（窗口关闭/隐藏/无标题）时才重新枚举
                 target_window = None
                 if cached_target_window is not None:
@@ -1467,11 +1467,11 @@ def worker(app):
 
                         while current_task_index < len(task_list) and not stop_execution:
 
-                            # 每个Task执行前重新截图（保留原有失败逻辑）
+                            # 每个Task执行前重新截图
                             # 传入缓存的截图模式配置，避免重复读取 config.ini
                             screenshot = capture_window(target_window, screenshot_mode=screenshot_mode, adb_device_serial=adb_device_serial)
                             if screenshot is None:
-                                # 完全复用原有截图失败逻辑，不做任何修改
+                                # 截图失败处理
                                 is_normal_execution = False
                                 error_msg = "窗口截图失败"
                                 app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
@@ -1480,7 +1480,7 @@ def worker(app):
                                 break
                             else:
                                 app.log(f"✅ 任务[{task_list[current_task_index]}]截图成功 - 尺寸：{screenshot.shape[1]}x{screenshot.shape[0]}")
-                                # 优化：截图仅转一次灰度，后续所有匹配复用该灰度图
+                                # 截图仅转一次灰度，后续所有匹配复用
                                 screenshot_gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
 
                             # ：进入任务前先检查停止，立即终止循环
@@ -1493,10 +1493,10 @@ def worker(app):
                             try:
                                 task = task_config[task_name]
 
-                                # 新增：读取任务级 ignore_occlusion 配置
+                                #读取任务级 ignore_occlusion 配置
                                 ignore_occlusion = task.get("ignore_occlusion", False)
                                 
-                                # 新增：遍历ref_images数组，查找第一个匹配的分支
+                                #遍历ref_images数组，查找第一个匹配的分支
                                 ref_images_list = task.get("ref_images", [])
                                 if not ref_images_list:
                                     task_error = True
@@ -1507,7 +1507,7 @@ def worker(app):
                                 matched_branch = None  # 存储匹配到的分支（包含image/threshold/match_times/actions）
                                 matched_branch_idx = -1  # 匹配分支的索引
 
-                                 # 新增：如果配置了 ignore_occlusion，直接执行第一个分支
+                                 #如果配置了 ignore_occlusion，直接执行第一个分支
                                 if ignore_occlusion:
                                     matched_branch = ref_images_list[0]
                                     matched_branch_idx = 0
@@ -1521,7 +1521,7 @@ def worker(app):
                                         threshold = ref_branch.get("similarity_threshold", 0.9)
                                         match_times = ref_branch.get("match_times", 1)
                                         match_times = match_times if match_times >= 1 else 1
-                                        # 新增：读取run_on_match配置，默认正向匹配（向前兼容）
+                                        #读取run_on_match配置，默认正向匹配（向前兼容）
                                         run_on_match = ref_branch.get("run_on_match", True)
 
                                         # 初始化当前分支的连续匹配/不匹配计数器
@@ -1529,7 +1529,7 @@ def worker(app):
                                         if branch_key not in task_continuous_match:
                                             task_continuous_match[branch_key] = 0
 
-                                        # ========== 新增：支持多图像逻辑关系匹配 ==========
+                                        # ========== 多图像逻辑关系匹配 ==========
                                         image_config = ref_branch["image"]
                                         is_match = False
                                         similarity = 0.0
@@ -1548,13 +1548,13 @@ def worker(app):
                                                 similarity = 0.0
                                                 app.log(f"⚠️ 任务[{task_name}]分支{branch_idx}：模板匹配返回值异常")
                                         elif isinstance(image_config, list) and len(image_config) >= 2:
-                                            # 新增格式：["and", "target1.png", "target2.png"...] 或 ["or", "target1.png", "target2.png"...]
+                                            # 格式：["and", "target1.png", "target2.png"...] 或 ["or", "target1.png", "target2.png"...]
                                             operator = image_config[0].lower()
                                             image_list = image_config[1:]
                                             
                                             if operator == "and":
                                                 # AND逻辑：所有图像都必须匹配成功
-                                                # 短路优化：任一图像不匹配即终止，无需继续检查
+                                                # 短路判断：任一图像不匹配即终止，无需继续检查
                                                 all_matched = True
                                                 max_sim = 0.0
                                                 unmatched_images = []
@@ -1582,7 +1582,7 @@ def worker(app):
 
                                             elif operator == "or":
                                                 # OR逻辑：任一图像匹配成功即可
-                                                # 短路优化：一旦有图像匹配成功即终止，无需继续检查
+                                                # 短路判断：一旦有图像匹配成功即终止，无需继续检查
                                                 any_matched = False
                                                 max_sim = 0.0
                                                 matched_images = []
@@ -1670,7 +1670,7 @@ def worker(app):
                                         continue
                                     action_type = action["type"]
                                     params = action["params"]
-                                    #  动作执行前检查停止（原有逻辑完全保留）
+                                    # 动作执行前检查停止
                                     if app.stop_flag:
                                         stop_execution = True
                                         app.log("  - 检测到停止指令，终止当前动作执行")
@@ -1694,7 +1694,7 @@ def worker(app):
                                             app.stop_flag = True
                                             break
                                         
-                                        # 处理goto_task跳转（原有逻辑保留）
+                                        # 处理goto_task跳转
                                         if len(result) == 3 and not result[1]:
                                             current_task_index = result[2]
                                             current_task_index = max(0, min(current_task_index, len(task_list)-1))
@@ -1743,7 +1743,7 @@ def worker(app):
                 break
             
             if not need_wait:
-                # 优化：使用 threading.Event.wait() 替代分片 sleep
+                # 使用 threading.Event.wait() 等待
                 # - 单次系统调用，比 10 次 time.sleep(0.1) 更高效
                 # - stop_event 被设置时立即返回，比轮询 stop_flag 响应更快
                 # - 无需手动计数器，语义更清晰
@@ -1755,7 +1755,7 @@ def worker(app):
             consecutive_error_count += 1
             app.log(f"❌ 未预期的执行错误：{error_msg}（连续错误：{consecutive_error_count}/{max_consecutive_errors}）")
             
-            # 异常处理中复用已缓存的 max_consecutive_errors，避免重复读取
+            # 异常处理中复用已缓存的最大连续错误数
             if consecutive_error_count >= max_consecutive_errors:
                 final_msg = f"连续执行错误达到{max_consecutive_errors}次，任务已停止"
                 app.log(final_msg)
@@ -1800,7 +1800,7 @@ class AutoClickGUI:
         self.worker_generation = 0  # worker世代计数器，每次重启递增，用于旧线程自检退出
         self.stop_flag = False  # 线程停止标志，由_start()和_stop()控制
 
-        # 新增↓ 热键相关初始化
+        # 热键相关初始化
         self.hotkey_keys = {Key.f9, Key.f10}  # F9+F10组合键
         self.pressed_keys = set()  # 记录当前按下的键
         self.key_listener = None
@@ -1836,9 +1836,8 @@ class AutoClickGUI:
         self.key_listener = keyboard.Listener(on_press=on_key_press, on_release=on_key_release)
         self.key_listener.daemon = True
         self.key_listener.start()
-    # 新增↑
 
-    # 新增↓ 组合键触发处理（核心逻辑：复用原有启动/停止方法）
+    # 组合键触发处理
     def _handle_hotkey_trigger(self):
         """F9+F10触发时切换任务状态"""
         # 避免重复触发（短时间内只响应一次）
@@ -1848,16 +1847,15 @@ class AutoClickGUI:
         self.root.after(500, lambda: setattr(self, "_hotkey_locked", False))  # 500ms解锁
 
         if self.thread and self.thread.is_alive():
-            # 任务运行中 → 停止（复用原有_stop方法）
+            # 任务运行中 → 停止
             self._stop(is_manual=True)
             self.log("🛑 热键(F9+F10)触发：停止任务组")
         else:
-            # 任务未运行 → 启动（复用原有_start方法）
+            # 任务未运行 → 启动
             self._start()
             self.log("▶️ 热键(F9+F10)触发：启动任务组")
-    # 新增↑
 
-    # 新增↓ 窗口关闭清理
+    # 窗口关闭时清理热键监听
     def _on_window_close(self):
         """窗口关闭时清理资源"""
         # 停止热键监听
@@ -1868,7 +1866,6 @@ class AutoClickGUI:
             self.stop_flag = True
             self.thread.join(timeout=2)
         self.root.destroy()
-    # 新增↑
 
     def on_screenshot_mode_change(self, event=None):
         """截图模式变更回调，保存到配置（匹配点击模式回调风格）"""
@@ -2013,7 +2010,7 @@ class AutoClickGUI:
             self.log(f"❌ ADB环境不可用：{adb_path_or_msg}")
             return
 
-        # 4. 核心修复：彻底剥离开头的'adb'前缀，提取纯参数（关键步骤）
+        # 4. 剥离开头的'adb'前缀，提取纯参数
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
         adb_usage_mode = main_config["ADBConfig"].get("adb_usage_mode", "1")
@@ -2074,7 +2071,7 @@ class AutoClickGUI:
 
     
     def _create_widgets(self):
-        # 主布局：移除坐标拾取标签页，保留原有结构
+        # 主布局
         main_notebook = ttk.Notebook(self.root)
         
         # ========== 标签页铺满 ==========
@@ -2115,28 +2112,27 @@ class AutoClickGUI:
         ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=3)
         
         # =============================================
-        # 新增：模板匹配步长配置区域（复用原有样式）
+        # 模板匹配步长配置区域
         # =============================================
-        # 1. 创建和原有区域样式一致的LabelFrame
         match_step_frame = ttk.LabelFrame(window_frame, text="模板匹配配置", padding="5")
         match_step_frame.pack(fill=tk.X, padx=10, pady=2)
         
-        # 2. 初始化配置读取（复用原有config逻辑）
+        # 初始化配置读取
         self.match_step_var = tk.StringVar()
-        # 读取配置中的步长，兼容配置缺失/格式错误
+        # 读取配置中的步长
         self._load_match_step_from_config()
         
-        # 3. 步长输入区域（布局和"窗口选择"区域对齐，保持视觉统一）
+        # 步长输入区域
         ttk.Label(match_step_frame, text="匹配缩略图步长：").grid(row=0, column=0, padx=5, pady=3, sticky=tk.W)
         # 输入框：宽度适配，仅允许输入数字
         step_entry = ttk.Entry(
             match_step_frame, 
             textvariable=self.match_step_var,
-            width=20  # 紧凑宽度，和原有组件风格一致
+            width=20  # 紧凑宽度
         )
         step_entry.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
         
-        # 4. 保存按钮：复用原有配置写入逻辑风格
+        # 保存按钮
         ttk.Button(
             match_step_frame, 
             text="保存步长", 
@@ -2304,7 +2300,7 @@ class AutoClickGUI:
         enabled_rev_map = {v: k for k, v in enabled_map.items()}
         mode_rev_map = {v: k for k, v in mode_map.items()}
 
-        # ---------------------- 新增：灰显样式定义 ----------------------
+        # ---------------------- 灰显样式定义 ----------------------
         style = ttk.Style()
         style.configure("Gray.TEntry", foreground="#888888")  # 灰显输入框
         style.configure("Normal.TEntry", foreground="#000000") # 正常输入框
@@ -2418,9 +2414,9 @@ class AutoClickGUI:
         )
         cmd_tip_label.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="w")
 
-        # 5. 实时更新配置（精准记录修改内容，无变化不输出日志）
+        # 5. 实时更新配置（无变化则不输出日志）
         def update_adb_config(*args):
-            # ========== 1. 读取修改前的旧配置（原始值） ==========
+            # ========== 1. 读取旧配置 ==========
             old_config = configparser.ConfigParser()
             old_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
             if "ADBConfig" not in old_config:
@@ -2431,7 +2427,7 @@ class AutoClickGUI:
             old_mode = old_config["ADBConfig"].get("adb_usage_mode", "1")
             old_position = old_config["ADBConfig"].get("adb_position", "")
 
-            # ========== 2. 获取修改后的新值（转换后） ==========
+            # ========== 2. 获取新值 ==========
             new_enabled_text = adb_enabled_var.get()  # 是/否
             new_mode_text = adb_mode_var.get()        # 内置/自定义/系统环境变量
             new_position = adb_position_var.get()     # 路径字符串
@@ -2440,7 +2436,7 @@ class AutoClickGUI:
             new_enabled = enabled_map[new_enabled_text]
             new_mode = mode_map[new_mode_text]
 
-            # ========== 3. 对比新旧值，收集变化项 ==========
+            # ========== 3. 对比并收集变化 ==========
             changed_items = []
             # 对比ADB启用状态
             if old_enabled != new_enabled:
@@ -2482,7 +2478,7 @@ class AutoClickGUI:
                 app.log(f"[{log_time}] ADB配置更新：{changed_detail}")
             
             except Exception as e:
-                # 错误日志保留详细信息
+                # 错误日志
                 log_time = time.strftime("%Y-%m-%d %H:%M:%S")
                 app.log(f"[{log_time}] ADB配置更新失败：{str(e)}")
 
@@ -2491,7 +2487,7 @@ class AutoClickGUI:
         adb_mode_var.trace_add("write", update_adb_config)
         adb_position_var.trace_add("write", update_adb_config)
 
-        # ========== 4. 其他标签页（空白框架，内容待补充） ==========
+        # ========== 4. 其他标签页 ==========
         # 参考"目标窗口"标签页结构创建，添加在最右侧
         other_frame = ttk.Frame(main_notebook)
         main_notebook.add(other_frame, text="其他")
@@ -2635,7 +2631,7 @@ class AutoClickGUI:
             get_theme_id_by_name(self.theme_var.get()) if self.theme_var.get() else "light"
         ))
 
-    # 新增打开坐标拾取脚本的方法
+    # 打开坐标拾取脚本
     def _open_screenxy(self):
             try:
                 if os.path.exists(self.SCREENXY_PATH):
@@ -2670,8 +2666,7 @@ class AutoClickGUI:
                 self.log(f"❌ 打开ADB截图工具失败：{str(e)}")
                 messagebox.showerror("错误", f"打开脚本失败：{str(e)}")
 
-    # 新增：配置读写方法（复用原有config逻辑）
-    # =============================================
+    # 配置读写方法
     def _load_match_step_from_config(self):
         """从配置文件读取匹配步长，初始化输入框"""
         config = configparser.ConfigParser()
@@ -2680,12 +2675,12 @@ class AutoClickGUI:
         # 兼容GENERAL节点缺失的情况
         if "GENERAL" not in config:
             config["GENERAL"] = {}
-        # 读取步长，默认值0.01，兼容格式错误
+        # 读取步长，默认值0.01
         try:
             step = float(config["GENERAL"].get("template_match_step", "0.01"))
             # 合法性校验，限制范围
             step = max(0.001, min(0.2, step))
-            self.match_step_var.set(f"{step:.3f}")  # 保留3位小数，提升可读性
+            self.match_step_var.set(f"{step:.3f}")
         except (ValueError, TypeError):
             self.match_step_var.set("0.01")  # 格式错误时用默认值
 
@@ -2701,13 +2696,13 @@ class AutoClickGUI:
                 # 恢复合法值
                 self._load_match_step_from_config()
                 return
-            # 3. 写入配置文件（复用原有config写入逻辑）
+            # 3. 写入配置文件
             config = configparser.ConfigParser()
             if os.path.exists(MAIN_CONFIG_PATH):
                 config.read(MAIN_CONFIG_PATH, encoding="utf-8")
             if "GENERAL" not in config:
                 config["GENERAL"] = {}
-            # 保存为字符串，保留3位小数
+            # 保存为字符串
             config["GENERAL"]["template_match_step"] = f"{step_val:.3f}"
             # 写入文件
             with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -2725,7 +2720,7 @@ class AutoClickGUI:
         display_list = [win["display"] for win in self.window_list]
         self.window_combobox["values"] = display_list
         
-        # 正确获取下拉框实际选项数量，不手动修改其值
+        # 获取下拉框选项数量
         actual_count = len(self.window_combobox["values"])
         if actual_count > 0:  # 仅当有有效选项时执行清空
             self.window_combobox.current(0)
@@ -2934,9 +2929,9 @@ class AutoClickGUI:
         # ========== 核心：设置窗口大小（可按需调整） ==========
         new_win.geometry("350x180")  # 宽度350px，高度180px
         new_win.minsize(300, 150)    # 可选：设置最小尺寸，防止拖得太小
-        new_win.resizable(True, True)  # 修正注释：允许拉伸窗口（原注释错误）
+        new_win.resizable(True, True)  # 允许拉伸窗口
         
-        # 可选：让窗口居中显示（优化体验）
+        # 窗口居中显示
         new_win.update_idletasks()
         screen_width = new_win.winfo_screenwidth()
         screen_height = new_win.winfo_screenheight()
@@ -2947,7 +2942,7 @@ class AutoClickGUI:
         # ========== 设置列权重，实现元素居中 ==========
         new_win.columnconfigure(0, weight=1)  # 让第0列自适应窗口宽度，支撑居中
 
-        # ========== 窗口内控件布局（修改为居中显示） ==========
+        # ========== 控件布局 ==========
         # 标签（使用sticky="center"实现居中）
         ttk.Label(new_win, text="请输入任务组名称：", font=("Arial", 10)).grid(
             row=0, column=0, 
@@ -3013,25 +3008,15 @@ class AutoClickGUI:
             messagebox.showerror("错误", f"无法打开文件：{str(e)}")
     
     def _start(self):
-        # ========== 修复：线程残留导致重复执行 ==========
-        # 问题：旧线程可能因 join 超时未退出，新线程启动后两个 worker 同时运行
-        # 解决：
-        #   1. 递增 worker_generation，旧 worker 在关键检查点发现世代不匹配自检退出
-        #   2. 先置位 stop_flag，然后等待旧线程
-        #   3. 最后重置 stop_flag 启动新线程
-        # 
-        # 针对低性能设备优化：
-        # 1. 使用较长超时时间（3秒），确保慢速设备有足够时间完成线程清理
-        # 2. 添加状态日志，便于调试和用户反馈
-        # 3. 使用非阻塞轮询方式，避免完全阻塞UI
+        # 线程清理：确保旧线程完全退出后再启动新线程
         if self.thread and self.thread.is_alive():
             self.stop_flag = True
-            self.worker_generation += 1  # 递增世代号，让旧 worker 自检退出
+            self.worker_generation += 1
             self.log("⏳ 等待旧线程停止...")
             
-            # 低性能设备优化：使用3秒超时，并记录实际等待时间
+            # 使用3秒超时，并记录实际等待时间
             start_wait = time.time()
-            self.thread.join(timeout=5.0)  # 延长超时时间至3秒，适应低性能设备
+            self.thread.join(timeout=5.0)
             wait_time = time.time() - start_wait
             
             if self.thread.is_alive():
@@ -3056,7 +3041,7 @@ class AutoClickGUI:
         self.stop_btn.config(state=tk.NORMAL)
         self.log("🚀 程序已启动！")
     
-    # 在AutoClickGUI类中补充/修改_stop方法
+    # _stop方法
     def _stop(self, is_manual=True):
         """停止任务并重置UI状态"""
         self.stop_flag = True
@@ -3162,7 +3147,7 @@ class AutoClickGUI:
         # 关闭按钮
         ttk.Button(content_frame, text="关闭", command=about_window.destroy).pack(pady=10)
 
-    # 修改log方法
+    # log方法 - 线程安全地写入日志到GUI
     def log(self, msg):
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 临时启用编辑状态以写入日志

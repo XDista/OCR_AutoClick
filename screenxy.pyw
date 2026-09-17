@@ -11,7 +11,6 @@ import configparser
 import os
 import psutil
 import win32process
-import pygetwindow as gw
 
 # 解决高DPI显示模糊问题
 try:
