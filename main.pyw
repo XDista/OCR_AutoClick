@@ -35,8 +35,8 @@ from theme.theme_manager import (
 )
 
 # 版本信息 - 集中管理，便于维护
-APP_VERSION = "1.4.4"
-UPDATE_TIME = "2026-09-18 00:00:00"
+APP_VERSION = "1.4.5"
+UPDATE_TIME = "2026-09-26 00:00:00"
 
 # 解决高DPI显示模糊问题
 try:
@@ -1795,6 +1795,7 @@ class AutoClickGUI:
         self.window_list = []  # 存储窗口信息（display: 显示文本, hwnd: 句柄, title: 标题, process_name: 进程名）
         self.SCREENXY_PATH = os.path.join(BASE_DIR, "screenxy.pyw") # 坐标拾取工具路径
         self.adb_screenshot_path = os.path.join(BASE_DIR, "adb_screenshot.pyw")
+        self.SYNC_FILE_PATH = os.path.join(BASE_DIR, "sync_file.py") # 配置同步工具路径
 
         self.stop_event = threading.Event()  # 线程安全的Event
         self.worker_generation = 0  # worker世代计数器，每次重启递增，用于旧线程自检退出
@@ -2146,8 +2147,8 @@ class AutoClickGUI:
             foreground="#666666"  # 浅灰色，不干扰主视觉
         ).grid(row=0, column=3, padx=5, pady=3, sticky=tk.W)
 
-        # 1.3 功能区域（从"其他"标签页迁移）
-        placeholder_frame = ttk.LabelFrame(window_frame, text="功能区域", padding="5")
+        # 1.3 Alas配置（从"其他"标签页迁移）
+        placeholder_frame = ttk.LabelFrame(window_frame, text="Alas配置", padding="5")
         placeholder_frame.pack(fill=tk.X, padx=10, pady=2)
         
         # 重启脚本按钮（左对齐）
@@ -2363,11 +2364,10 @@ class AutoClickGUI:
         # 验证ADB环境按钮（放在路径框内）
         def validate_adb_env():
             is_valid, msg = validate_adb_environment()
-            log_time = time.strftime("%Y-%m-%d %H:%M:%S")
             if is_valid:
-                app.log(f"[{log_time}] ADB验证成功：{msg}")
+                app.log(f"ADB验证成功：{msg}")
             else:
-                app.log(f"[{log_time}] ADB验证失败：{msg}")
+                app.log(f"ADB验证失败：{msg}")
 
         ttk.Button(
             adb_path_frame, text="验证ADB环境", command=validate_adb_env, width=12
@@ -2473,14 +2473,12 @@ class AutoClickGUI:
                     main_config.write(f)
                 
                 # 输出精准日志：拼接所有变化项
-                log_time = time.strftime("%Y-%m-%d %H:%M:%S")
                 changed_detail = "；".join(changed_items)
-                app.log(f"[{log_time}] ADB配置更新：{changed_detail}")
+                app.log(f"ADB配置更新：{changed_detail}")
             
             except Exception as e:
                 # 错误日志
-                log_time = time.strftime("%Y-%m-%d %H:%M:%S")
-                app.log(f"[{log_time}] ADB配置更新失败：{str(e)}")
+                app.log(f"ADB配置更新失败：{str(e)}")
 
         # 绑定更新事件
         adb_enabled_var.trace_add("write", update_adb_config)
@@ -2530,7 +2528,7 @@ class AutoClickGUI:
         ttk.Label(theme_frame, text="（切换后自动保存，重启后生效）", foreground="#666666").grid(row=0, column=3, padx=5, pady=3, sticky="w")
         
         # 空白区域框架（内容待后续补充）
-        empty_frame = ttk.LabelFrame(other_frame, text="功能区域", padding="10")
+        empty_frame = ttk.LabelFrame(other_frame, text="Alas配置", padding="10")
         empty_frame.pack(fill=tk.X, padx=10, pady=5)
         
         # Alas路径配置（第一行）
@@ -2552,6 +2550,7 @@ class AutoClickGUI:
             if alas_file:
                 where_alas_var.set(alas_file)
         ttk.Button(empty_frame, text="浏览", command=select_alas_path, width=6).grid(row=0, column=2, padx=5, pady=3, sticky="w")
+        ttk.Button(empty_frame, text="同步配置", command=self._open_sync_file, width=8).grid(row=0, column=3, padx=5, pady=3, sticky="w")
         
         # 更新配置函数
         def update_alas_config(*args):
@@ -2565,11 +2564,9 @@ class AutoClickGUI:
                     main_config["GENERAL"]["where_alas"] = new_alas_path
                     with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
                         main_config.write(f)
-                    log_time = time.strftime("%Y-%m-%d %H:%M:%S")
-                    app.log(f"[{log_time}] Alas路径更新：{where_alas if where_alas else '空'} → {new_alas_path if new_alas_path else '空'}")
+                    app.log(f"Alas路径更新：{where_alas if where_alas else '空'} → {new_alas_path if new_alas_path else '空'}")
                 except Exception as e:
-                    log_time = time.strftime("%Y-%m-%d %H:%M:%S")
-                    app.log(f"[{log_time}] Alas路径更新失败：{str(e)}")
+                    app.log(f"Alas路径更新失败：{str(e)}")
         
         where_alas_var.trace_add("write", update_alas_config)
         
@@ -2647,6 +2644,37 @@ class AutoClickGUI:
                     messagebox.showerror("错误", f"未找到脚本文件：{self.SCREENXY_PATH}")
             except Exception as e:
                 self.log(f"❌ 打开坐标拾取工具失败：{str(e)}")
+                messagebox.showerror("错误", f"打开脚本失败：{str(e)}")
+
+    def _open_sync_file(self):
+            try:
+                if not os.path.exists(self.SYNC_FILE_PATH):
+                    self.log(f"❌ 未找到配置同步工具：{self.SYNC_FILE_PATH}")
+                    messagebox.showerror("错误", f"未找到脚本文件：{self.SYNC_FILE_PATH}")
+                    return
+
+                main_config = configparser.ConfigParser()
+                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+                where_alas = main_config["GENERAL"].get("where_alas", "").strip()
+                if not where_alas or not os.path.exists(where_alas):
+                    self.log("❌ 未配置有效的Alas路径，无法确定同步目标目录")
+                    messagebox.showerror("错误", "请先在「Alas配置」中配置有效的Alas路径，\n同步工具将打开Alas同目录下的 config 文件夹。")
+                    return
+
+                alas_dir = os.path.dirname(where_alas)
+                target_config_dir = os.path.join(alas_dir, "config")
+                if not os.path.isdir(target_config_dir):
+                    self.log(f"❌ 目标配置目录不存在：{target_config_dir}")
+                    messagebox.showerror("错误", f"目标配置目录不存在：\n{target_config_dir}")
+                    return
+
+                subprocess.Popen(
+                    [sys.executable, self.SYNC_FILE_PATH, target_config_dir],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+                )
+                self.log(f"✅ 已打开配置同步工具，目标目录：{target_config_dir}")
+            except Exception as e:
+                self.log(f"❌ 打开配置同步工具失败：{str(e)}")
                 messagebox.showerror("错误", f"打开脚本失败：{str(e)}")
 
     def _open_adb_screenshot(self):
