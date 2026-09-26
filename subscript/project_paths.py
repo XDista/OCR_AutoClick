@@ -10,8 +10,9 @@ else:
 MAIN_CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 REFS_DIR = os.path.join(BASE_DIR, "refs")
 TASKS_DIR = os.path.join(BASE_DIR, "tasks")
+TASK_OCR_DIR = os.path.join(BASE_DIR, "task_ocr")
 
 # 确保必要目录存在
-for _dir in [REFS_DIR, TASKS_DIR, os.path.join(REFS_DIR, "subdir")]:
+for _dir in [REFS_DIR, TASKS_DIR, TASK_OCR_DIR, os.path.join(REFS_DIR, "subdir")]:
     if not os.path.exists(_dir):
         os.makedirs(_dir)

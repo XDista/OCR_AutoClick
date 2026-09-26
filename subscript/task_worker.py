@@ -5,13 +5,13 @@ import configparser
 import json
 import cv2
 import win32gui
-from app_registry import get_app
-from project_paths import TASKS_DIR, REFS_DIR, MAIN_CONFIG_PATH
+from project_paths import TASKS_DIR, REFS_DIR, TASK_OCR_DIR, MAIN_CONFIG_PATH
 from window_utils import get_window_client_rect, get_target_window_from_config, is_window_visible
 from screenshot_capture import capture_window
 from image_matcher import template_match
 from action_executor import execute_action, send_windows_notification
-from config_manager import init_task_config
+from config_manager import init_task_config, init_ocr_task_config
+from ocr_engine import OCREngine
 
 # 工作线程使用的全局任务索引
 current_task_index = 0
@@ -143,7 +143,7 @@ def worker(app):
                         task_error = False
                         stop_execution = False
 
-                        task_list = list(task_config.keys())
+                        task_list = [k for k, v in task_config.items() if not k.startswith("_") and isinstance(v, dict) and "ref_images" in v]
 
                         while current_task_index < len(task_list) and not stop_execution:
                             screenshot = capture_window(target_window, screenshot_mode=screenshot_mode, adb_device_serial=adb_device_serial)
@@ -400,3 +400,319 @@ def worker(app):
                 app.log("🛑 程序已停止")
 
             time.sleep(1.0)
+
+
+def worker_ocr(app):
+    stop_execution = False
+    global current_task_index
+    current_task_index = 0
+    consecutive_error_count = 0
+    scheduled_once_triggered = False
+    stop_source = ""
+    task_continuous_match = {}
+    cached_target_window = None
+
+    worker_gen = app.worker_generation
+
+    ocr_engine = OCREngine()
+    ocr_engine.configure(
+        device=app.ocr_device,
+        language=app.ocr_lang,
+        confidence_threshold=app.ocr_conf,
+    )
+
+    while not app.stop_flag:
+        if worker_gen != app.worker_generation:
+            app.log("🔁 检测到新工作线程启动，旧OCR线程自动退出")
+            break
+
+        is_normal_execution = True
+        error_msg = ""
+
+        try:
+            main_config = configparser.ConfigParser()
+            main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+
+            freq = float(main_config["GENERAL"]["recognition_frequency"])
+            start_time_str = main_config["GENERAL"]["next_start_time"]
+            task_group = main_config["OCRConfig"]["current_ocr_task"]
+            max_consecutive_errors = int(main_config["GENERAL"]["max_execution_errors"])
+            enable_schedule = main_config["GENERAL"].getboolean("enable_schedule")
+            schedule_mode = main_config["GENERAL"]["schedule_mode"]
+
+            target_window_title = main_config["GENERAL"].get("target_window_title", "").strip()
+            target_program_name = main_config["GENERAL"].get("target_program_name", "").strip()
+
+            screenshot_mode = main_config["GENERAL"]["screenshot_mode"]
+            adb_device_serial = main_config["ADBConfig"]["adb_device_serial"]
+
+            click_mode = main_config["GENERAL"]["click_mode"]
+
+            adb_usage_mode = main_config["ADBConfig"].get("adb_usage_mode", "1")
+            action_config = {
+                "adb_device_serial": adb_device_serial,
+                "adb_usage_mode": adb_usage_mode,
+            }
+
+            now = datetime.datetime.now()
+            need_wait = False
+
+            if enable_schedule and not (schedule_mode == "once" and scheduled_once_triggered):
+                try:
+                    target_time = datetime.datetime.strptime(start_time_str, "%H:%M:%S").replace(
+                        year=now.year, month=now.month, day=now.day,
+                    )
+
+                    if now < target_time:
+                        wait_sec = (target_time - now).total_seconds()
+                        app.log(f"【定时等待】{schedule_mode}模式，距离{start_time_str}还有 {wait_sec:.1f} 秒")
+                        time.sleep(min(wait_sec, freq))
+                        need_wait = True
+                    else:
+                        need_wait = False
+                        if schedule_mode == "once":
+                            app.log(f"【定时触发】仅一次模式已触发（{start_time_str}）")
+                            scheduled_once_triggered = True
+                        else:
+                            target_time += datetime.timedelta(days=1)
+                            app.log(f"【定时触发】始终模式已触发，下次：{target_time.strftime('%H:%M:%S')}")
+                except ValueError:
+                    is_normal_execution = False
+                    error_msg = f"定时时间格式错误（{start_time_str}）"
+                    app.log(f"⚠️ {error_msg}")
+
+            if not need_wait:
+                target_window = None
+                if cached_target_window is not None:
+                    try:
+                        hwnd = cached_target_window._hWnd
+                        if is_window_visible(hwnd):
+                            title_valid = True
+                            if target_window_title:
+                                current_title = win32gui.GetWindowText(hwnd)
+                                if target_window_title not in current_title:
+                                    app.log(f"缓存窗口标题已变更（预期包含'{target_window_title}'，当前：'{current_title}'），重新枚举...")
+                                    title_valid = False
+
+                            if title_valid:
+                                target_window = cached_target_window
+                            else:
+                                cached_target_window = None
+                        else:
+                            app.log(f"缓存窗口失效（句柄：{hwnd}），重新枚举目标窗口...")
+                            cached_target_window = None
+                    except Exception as e:
+                        app.log(f"缓存窗口访问异常：{e}，重新枚举...")
+                        cached_target_window = None
+
+                if target_window is None:
+                    target_window = get_target_window_from_config()
+                    cached_target_window = target_window
+
+                if not target_window:
+                    is_normal_execution = False
+                    error_msg = "未找到目标程序窗口（请检查配置的进程/标题关键词）"
+                    app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
+                else:
+                    try:
+                        window_text = win32gui.GetWindowText(target_window._hWnd)
+                        window_handle = target_window._hWnd
+                        client_left, client_top, client_width, client_height = get_window_client_rect(target_window._hWnd)
+                        app.log(f"✅ 找到目标窗口 - 标题：{window_text} | 句柄：{window_handle} | 客户区位置/尺寸：({client_left},{client_top}) {client_width}x{client_height}")
+
+                        task_path = os.path.join(TASK_OCR_DIR, f"{task_group}.json")
+                        if not os.path.exists(task_path):
+                            init_ocr_task_config(task_group)
+                        with open(task_path, "r", encoding="utf-8") as f:
+                            task_config = json.load(f)
+
+                        task_error = False
+                        stop_execution = False
+
+                        task_list = [k for k, v in task_config.items() if not k.startswith("_") and isinstance(v, dict) and "targets" in v]
+
+                        while current_task_index < len(task_list) and not stop_execution:
+                            screenshot = capture_window(target_window, screenshot_mode=screenshot_mode, adb_device_serial=adb_device_serial)
+                            if screenshot is None:
+                                is_normal_execution = False
+                                error_msg = "窗口截图失败"
+                                app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
+                                task_error = True
+                                break
+                            else:
+                                app.log(f"✅ 任务[{task_list[current_task_index]}]截图成功 - 尺寸：{screenshot.shape[1]}x{screenshot.shape[0]}")
+
+                            if app.stop_flag:
+                                stop_execution = True
+                                break
+
+                            task_name = task_list[current_task_index]
+
+                            try:
+                                task = task_config[task_name]
+
+                                if "ocr_settings" in task:
+                                    try:
+                                        ocr_engine.apply_ocr_settings(task)
+                                    except Exception as e:
+                                        app.log(f"⚠️ 任务[{task_name}]应用OCR设置失败：{e}")
+
+                                targets = task.get("targets", [])
+                                if not targets:
+                                    task_error = True
+                                    error_msg = f"任务[{task_name}]：targets数组为空"
+                                    app.log(f"⚠️ {error_msg}")
+                                    break
+
+                                matched_target = None
+                                matched_target_idx = -1
+
+                                for target_idx, target in enumerate(targets):
+                                    target_text = target.get("text", "")
+                                    if not target_text:
+                                        app.log(f"⚠️ 任务[{task_name}]目标{target_idx}：text为空，跳过")
+                                        continue
+
+                                    match_mode = target.get("match_mode", "contains")
+                                    match_times = target.get("match_times", 1)
+                                    match_times = match_times if match_times >= 1 else 1
+                                    reverse_match = target.get("reverse_match", False)
+                                    region = target.get("region", None)
+
+                                    target_key = f"ocr_{task_name}_target{target_idx}"
+                                    if target_key not in task_continuous_match:
+                                        task_continuous_match[target_key] = 0
+
+                                    cropped = ocr_engine._crop_region(screenshot, region)
+                                    ocr_texts = ocr_engine.recognize_text_only(cropped)
+
+                                    is_match = ocr_engine._match_text(ocr_texts, target_text, match_mode)
+                                    effective_match = (not reverse_match and is_match) or (reverse_match and not is_match)
+
+                                    if effective_match:
+                                        task_continuous_match[target_key] += 1
+                                    else:
+                                        task_continuous_match[target_key] = 0
+
+                                    current_continuous = task_continuous_match[target_key]
+                                    match_type = "正向匹配" if not reverse_match else "反向匹配"
+                                    region_desc = f"区域{region}" if region else "全图"
+
+                                    app.log(f"任务[{task_name}]目标{target_idx}('{target_text}')：{match_type} | {region_desc} | 模式:{match_mode} | 当前匹配:{is_match} | 连续满足次数:{current_continuous}/{match_times}")
+
+                                    if current_continuous >= match_times:
+                                        matched_target = target
+                                        matched_target_idx = target_idx
+                                        matched_desc = target.get("desc", target_text)
+                                        if not reverse_match:
+                                            app.log(f"✅ 任务[{task_name}]：目标{target_idx}('{matched_desc}')连续匹配成功，已选中")
+                                        else:
+                                            app.log(f"✅ 任务[{task_name}]：目标{target_idx}('{matched_desc}')连续匹配失败（反向匹配），已选中")
+                                        break
+
+                                if matched_target is None:
+                                    app.log(f"任务[{task_name}]：所有文字目标均未达到匹配条件，下一周期将继续检查")
+                                    break
+
+                                matched_desc = matched_target.get("desc", str(matched_target_idx))
+                                app.log(f"任务[{task_name}]目标{matched_target_idx}('{matched_desc}')：开始执行{len(matched_target.get('actions', []))}个动作...")
+
+                                jump_triggered = False
+                                actions = matched_target.get("actions", [])
+
+                                for action in actions:
+                                    if not isinstance(action, dict) or "type" not in action or "params" not in action:
+                                        app.log(f"⚠️ 任务[{task_name}]动作格式错误，跳过：{action}")
+                                        continue
+                                    action_type = action["type"]
+                                    params = action["params"]
+
+                                    if app.stop_flag:
+                                        stop_execution = True
+                                        app.log("  - 检测到停止指令，终止当前动作执行")
+                                        break
+
+                                    result = execute_action(target_window, action_type, params, stop_flag=app.stop_flag, click_mode=click_mode, action_config=action_config)
+
+                                    if isinstance(result, tuple):
+                                        log_msg = result[0]
+                                    else:
+                                        log_msg = result
+                                    app.log(f"  - {log_msg}")
+
+                                    if isinstance(result, tuple):
+                                        if len(result) >= 2 and result[1]:
+                                            stop_execution = True
+                                            if len(result) >= 3 and result[2] == "stop_action":
+                                                stop_source = "stop_action"
+                                            app.root.after(0, lambda: app._stop(is_manual=False))
+                                            app.stop_flag = True
+                                            break
+
+                                        if len(result) == 3 and not result[1]:
+                                            current_task_index = result[2]
+                                            current_task_index = max(0, min(current_task_index, len(task_list) - 1))
+                                            jump_triggered = True
+                                            break
+
+                                for target_idx in range(len(targets)):
+                                    target_key = f"ocr_{task_name}_target{target_idx}"
+                                    task_continuous_match[target_key] = 0
+
+                                if not jump_triggered and not stop_execution:
+                                    current_task_index += 1
+
+                            except Exception as e:
+                                task_error = True
+                                error_msg = f"任务[{task_name}]执行失败：{str(e)}"
+                                app.log(f"⚠️ 任务执行错误：{error_msg}")
+                                break
+
+                        if task_error:
+                            is_normal_execution = False
+                            app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
+                    except Exception as e:
+                        is_normal_execution = False
+                        error_msg = f"窗口操作失败：{str(e)}"
+                        app.log(f"执行错误：{error_msg}（连续错误：{consecutive_error_count + 1}/{max_consecutive_errors}）")
+
+            if is_normal_execution:
+                if consecutive_error_count > 0:
+                    app.log(f"✅ 执行正常，连续错误计数器已重置为0（之前：{consecutive_error_count}）")
+                consecutive_error_count = 0
+            else:
+                consecutive_error_count += 1
+
+            if consecutive_error_count >= max_consecutive_errors:
+                final_msg = f"连续执行错误达到{max_consecutive_errors}次，OCR任务已停止"
+                app.log(final_msg)
+                send_windows_notification("自动点击工具 - 任务停止", final_msg)
+                app.stop_flag = True
+                app.root.after(0, lambda: app._stop(is_manual=False))
+                break
+
+            if not need_wait:
+                app.stop_event.wait(timeout=freq)
+
+        except Exception as e:
+            is_normal_execution = False
+            error_msg = str(e)
+            consecutive_error_count += 1
+            app.log(f"❌ 未预期的执行错误：{error_msg}（连续错误：{consecutive_error_count}/{max_consecutive_errors}）")
+
+            if consecutive_error_count >= max_consecutive_errors:
+                final_msg = f"连续执行错误达到{max_consecutive_errors}次，任务已停止"
+                app.log(final_msg)
+                send_windows_notification("自动点击工具 - 任务停止", final_msg)
+                app.stop_flag = True
+                app.root.after(0, app._stop)
+                break
+
+    if stop_source == "stop_action":
+        app.log("🛑 【指令停止】由stop动作指令触发，OCR程序已停止")
+    elif app.stop_flag and stop_source == "":
+        app.log("🛑 【手动停止】用户手动触发，OCR程序已停止")
+    else:
+        app.log("🛑 OCR程序已停止")
+
+    time.sleep(1.0)

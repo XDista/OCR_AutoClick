@@ -33,7 +33,7 @@ from screenshot_capture import (
     get_adb_executable_path,
     validate_adb_environment,
 )
-from task_worker import worker
+from task_worker import worker, worker_ocr
 
 class AutoClickGUI:
     def __init__(self, root, version="1.0.0"):
@@ -60,6 +60,7 @@ class AutoClickGUI:
             apply_theme(root, "light")
 
         self.thread = None
+        self.ocr_thread = None
         self.auto_scroll = True
         self.window_list = []
         self.SCREENXY_PATH = os.path.join(BASE_DIR, "subscript", "screenxy.pyw")
@@ -805,6 +806,15 @@ class AutoClickGUI:
                                        state=tk.DISABLED)
         self.ocr_stop_btn.grid(row=0, column=3, padx=2, pady=3, sticky="w")
 
+        self.ocr_start_btn = ttk.Button(ocr_pre_frame, text="▶ 启动OCR任务",
+                                        command=self._start_ocr, width=14)
+        self.ocr_start_btn.grid(row=0, column=4, padx=(20, 2), pady=3, sticky="w")
+
+        self.ocr_task_stop_btn = ttk.Button(ocr_pre_frame, text="⏹ 停止OCR",
+                                            command=self._stop_ocr, width=10,
+                                            state=tk.DISABLED)
+        self.ocr_task_stop_btn.grid(row=0, column=5, padx=2, pady=3, sticky="w")
+
         _refresh_ocr_tasks()
 
         other_frame = ttk.Frame(main_notebook)
@@ -1445,15 +1455,59 @@ class AutoClickGUI:
         self.stop_btn.config(state=tk.NORMAL)
         self.log("🚀 程序已启动！")
 
+    def _start_ocr(self):
+        if self.ocr_thread and self.ocr_thread.is_alive():
+            self.stop_flag = True
+            self.worker_generation += 1
+            self.log("⏳ 等待旧OCR线程停止...")
+
+            start_wait = time.time()
+            self.ocr_thread.join(timeout=5.0)
+            wait_time = time.time() - start_wait
+
+            if self.ocr_thread.is_alive():
+                self.log(f"⚠️ 旧OCR线程停止超时（等待{wait_time:.2f}秒），但世代号已递增，旧 worker_ocr 将在下次检测时自行退出")
+            else:
+                self.log(f"✅ 旧OCR线程已停止（耗时{wait_time:.2f}秒）")
+
+        main_config = configparser.ConfigParser()
+        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+        main_config["OCRConfig"]["current_ocr_task"] = self.ocr_task_var.get()
+        with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
+            main_config.write(f)
+
+        self.stop_flag = False
+
+        self.ocr_thread = threading.Thread(target=worker_ocr, args=(self,), daemon=True)
+        self.ocr_thread.start()
+
+        self.ocr_start_btn.config(state=tk.DISABLED)
+        self.ocr_task_stop_btn.config(state=tk.NORMAL)
+        self.log("🚀 OCR任务已启动！")
+
+    def _stop_ocr(self):
+        self.stop_flag = True
+        self.worker_generation += 1
+        if self.ocr_thread and self.ocr_thread.is_alive():
+            self.ocr_thread.join(timeout=3.0)
+        self.ocr_start_btn.config(state=tk.NORMAL)
+        self.ocr_task_stop_btn.config(state=tk.DISABLED)
+        self.log("🛑 OCR任务已手动停止")
+
     def _stop(self, is_manual=True):
         if self._ocr_test_instance is not None:
             self._ocr_test_instance.cancel()
             self._ocr_test_instance = None
         self.stop_flag = True
+        self.worker_generation += 1
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
+        if self.ocr_thread and self.ocr_thread.is_alive():
+            self.ocr_thread.join(timeout=1.0)
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
+        self.ocr_start_btn.config(state=tk.NORMAL)
+        self.ocr_task_stop_btn.config(state=tk.DISABLED)
         self.ocr_test_btn.config(state=tk.NORMAL)
         self.ocr_stop_btn.config(state=tk.DISABLED)
         if is_manual:

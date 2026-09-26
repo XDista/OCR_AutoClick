@@ -1,7 +1,7 @@
 import os
 import json
 import configparser
-from project_paths import MAIN_CONFIG_PATH, TASKS_DIR
+from project_paths import MAIN_CONFIG_PATH, TASKS_DIR, TASK_OCR_DIR
 
 
 def init_main_config():
@@ -120,6 +120,57 @@ def init_task_config(task_group_name):
                     "similarity_threshold": 0.85,
                     "match_times": 1,
                     "run_on_match": True,
+                    "actions": [
+                        {"type": "click", "params": [100, 200]},
+                        {"type": "sleep", "params": [1.0]},
+                        {"type": "stop", "params": []},
+                    ],
+                },
+            ],
+        },
+    }
+    if not os.path.exists(task_config_path):
+        with open(task_config_path, "w", encoding="utf-8") as f:
+            json.dump(default_config, f, ensure_ascii=False, indent=4)
+    with open(task_config_path, "r", encoding="utf-8") as f:
+        task_config = json.load(f)
+    return task_config
+
+
+def init_ocr_task_config(task_group_name):
+    task_config_path = os.path.join(TASK_OCR_DIR, f"{task_group_name}.json")
+    default_config = {
+        "TASK1": {
+            "ocr_settings": {
+                "language": None,
+                "confidence_threshold": None,
+                "preprocess": None,
+            },
+            "targets": [
+                {
+                    "desc": "匹配示例文字",
+                    "text": "开始",
+                    "match_mode": "contains",
+                    "region": None,
+                    "reverse_match": False,
+                    "match_times": 1,
+                    "actions": [
+                        {"type": "click", "params": [100, 200]},
+                        {"type": "sleep", "params": [1.0]},
+                    ],
+                },
+            ],
+        },
+        "TASK2": {
+            "ocr_settings": {},
+            "targets": [
+                {
+                    "desc": "结束任务示例",
+                    "text": "关闭",
+                    "match_mode": "contains",
+                    "region": None,
+                    "reverse_match": False,
+                    "match_times": 1,
                     "actions": [
                         {"type": "click", "params": [100, 200]},
                         {"type": "sleep", "params": [1.0]},
