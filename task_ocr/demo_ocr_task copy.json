@@ -1,0 +1,133 @@
+{
+    "_schema": "ocr_task_v1",
+    "_description": "OCR文字识别任务组 - 演示模板",
+    "_workflow": "每个TASK执行流程：截取目标窗口 → OCR识别截图中的所有文字 → 在识别结果中按targets顺序匹配目标文字 → 首个命中则执行对应actions",
+
+    "ocr_settings": {
+        "language": ["ch_sim", "en"],
+        "confidence_threshold": 0.5,
+        "preprocess": {
+            "grayscale": false,
+            "threshold_enabled": false,
+            "threshold_value": 127,
+            "scale": 1.0
+        }
+    },
+
+    "TASK1": {
+        "desc": "OCR整个窗口截图，检测到'开始'就点击 → 检测到'确认'就点击（备选）",
+        "targets": [
+            {
+                "desc": "截图OCR结果中包含'开始'即命中",
+                "text": "开始",
+                "match_mode": "contains",
+                "match_times": 1,
+                "reverse_match": false,
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [960, 540],
+                        "desc": "点击开始按钮"
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [2.0]
+                    }
+                ]
+            },
+            {
+                "desc": "截图OCR结果中包含'确认'即命中（备选分支）",
+                "text": "确认",
+                "match_mode": "contains",
+                "match_times": 1,
+                "reverse_match": false,
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [960, 500],
+                        "desc": "点击确认按钮"
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [1.0]
+                    }
+                ]
+            }
+        ]
+    },
+
+    "TASK2": {
+        "desc": "战斗结果分支：OCR截图检测'胜利'或'失败'文字",
+        "targets": [
+            {
+                "desc": "截图中有'胜利' → 点击结算并回到TASK1",
+                "text": "胜利",
+                "match_mode": "contains",
+                "match_times": 1,
+                "reverse_match": false,
+                "region": [0, 0, 1920, 150],
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [960, 600],
+                        "desc": "点击结算确认"
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [3.0]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [1]
+                    }
+                ]
+            },
+            {
+                "desc": "截图中有'失败' → 点击退出并停止",
+                "text": "失败",
+                "match_mode": "contains",
+                "match_times": 1,
+                "reverse_match": false,
+                "region": [0, 0, 1920, 150],
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [960, 600],
+                        "desc": "点击退出"
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [2.0]
+                    },
+                    {
+                        "type": "stop",
+                        "params": []
+                    }
+                ]
+            }
+        ]
+    },
+
+    "TASK3": {
+        "desc": "反向匹配：OCR整个截图，连续2次未检测到'加载中' → 说明加载完成",
+        "targets": [
+            {
+                "desc": "截图中找不到'加载中' → 执行",
+                "text": "加载中",
+                "match_mode": "contains",
+                "match_times": 2,
+                "reverse_match": true,
+                "actions": [
+                    {
+                        "type": "click",
+                        "params": [960, 540]
+                    },
+                    {
+                        "type": "goto_task",
+                        "params": [1]
+                    }
+                ]
+            }
+        ]
+    }
+}
