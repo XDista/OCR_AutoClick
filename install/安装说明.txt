@@ -1,10 +1,11 @@
 0.安装过程中，所有需要的文件都在install.zip中，如果确定不需要就不必再下载！
 	install.zip中的安装说明默认已过时，请以此说明为准！
 
-1.安装python 3.13.2（其他版本自测，如果已经安装了python，则这一步可选）
-	双击运行python-3.13.2-amd64.exe，或者自行更换为适合自己电脑的版本。
+1.安装python 3.12.2（其他版本自测，如果已经安装了python 3.12，则这一步可选）
+	双击运行python-3.12.2-amd64.exe，或者自行更换为适合自己电脑的版本。
 	此脚本使用系统安装的python，推荐使用venv等虚拟环境以隔绝可能存在的依赖污染
 	【划重点！！！】需要在安装python时将python添加到系统变量！
+	ocr的硬件加速功能刚需python3.12，如不需要，可自行修改requirements.txt文件
 
 	#python官方下载地址：https://www.python.org/downloads/
 
