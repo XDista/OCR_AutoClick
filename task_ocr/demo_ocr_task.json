@@ -1,6 +1,6 @@
 {
     "_schema": "ocr_task_v1",
-    "_description": "OCR文字识别任务组 - 演示模板",
+    "_description": "OCR文字识别任务组 - AND/OR逻辑演示",
     "_workflow": "每个TASK执行流程：截取目标窗口 → OCR识别截图中的所有文字 → 在识别结果中按targets顺序匹配目标文字 → 首个命中则执行对应actions",
 
     "ocr_settings": {
@@ -15,41 +15,24 @@
     },
 
     "TASK1": {
-        "desc": "OCR整个窗口截图，检测到'开始'就点击 → 检测到'确认'就点击（备选）",
+        "desc": "OR逻辑（短路）：OCR结果中包含'确认'或'确定'或'OK'任一即触发",
         "targets": [
             {
-                "desc": "截图OCR结果中包含'开始'即命中",
-                "text": "开始",
+                "desc": "截图出现'确认'/'确定'/'OK'中任意一个 → 点击",
+                "text": ["or", "确认", "确定", "OK"],
                 "match_mode": "contains",
                 "match_times": 1,
                 "reverse_match": false,
+                "region": [0, 0, 1920, 1080],
                 "actions": [
                     {
                         "type": "click",
-                        "params": [960, 540],
-                        "desc": "点击开始按钮"
+                        "params": [460, 340],
+                        "desc": "点击确认弹窗"
                     },
                     {
                         "type": "sleep",
-                        "params": [2.0]
-                    }
-                ]
-            },
-            {
-                "desc": "截图OCR结果中包含'确认'即命中（备选分支）",
-                "text": "确认",
-                "match_mode": "contains",
-                "match_times": 1,
-                "reverse_match": false,
-                "actions": [
-                    {
-                        "type": "click",
-                        "params": [960, 500],
-                        "desc": "点击确认按钮"
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [1.0]
+                        "params": [1.5]
                     }
                 ]
             }
@@ -57,24 +40,23 @@
     },
 
     "TASK2": {
-        "desc": "战斗结果分支：OCR截图检测'胜利'或'失败'文字",
+        "desc": "AND逻辑：OCR结果中同时包含'胜利'和'结算'才触发",
         "targets": [
             {
-                "desc": "截图中有'胜利' → 点击结算并回到TASK1",
-                "text": "胜利",
+                "desc": "截图同时出现'胜利'和'结算' → 执行点击",
+                "text": ["and", "胜利", "结算"],
                 "match_mode": "contains",
                 "match_times": 1,
                 "reverse_match": false,
-                "region": [0, 0, 1920, 150],
                 "actions": [
                     {
                         "type": "click",
                         "params": [960, 600],
-                        "desc": "点击结算确认"
+                        "desc": "点击胜利结算"
                     },
                     {
                         "type": "sleep",
-                        "params": [3.0]
+                        "params": [2.0]
                     },
                     {
                         "type": "goto_task",
@@ -83,25 +65,24 @@
                 ]
             },
             {
-                "desc": "截图中有'失败' → 点击退出并停止",
-                "text": "失败",
+                "desc": "备选：仅出现'返回'文字 → 点击返回",
+                "text": "返回",
                 "match_mode": "contains",
                 "match_times": 1,
                 "reverse_match": false,
-                "region": [0, 0, 1920, 150],
                 "actions": [
                     {
                         "type": "click",
-                        "params": [960, 600],
-                        "desc": "点击退出"
+                        "params": [100, 50],
+                        "desc": "点击返回按钮"
                     },
                     {
                         "type": "sleep",
-                        "params": [2.0]
+                        "params": [1.0]
                     },
                     {
-                        "type": "stop",
-                        "params": []
+                        "type": "goto_task",
+                        "params": [1]
                     }
                 ]
             }
@@ -109,18 +90,24 @@
     },
 
     "TASK3": {
-        "desc": "反向匹配：OCR整个截图，连续2次未检测到'加载中' → 说明加载完成",
+        "desc": "AND + 反向匹配：连续3次没有同时出现'战斗中'和'暂停' → 战斗结束",
         "targets": [
             {
-                "desc": "截图中找不到'加载中' → 执行",
-                "text": "加载中",
+                "desc": "连续3次截图都不同时出现'战斗中'和'暂停' → 点击",
+                "text": ["and", "战斗中", "暂停"],
                 "match_mode": "contains",
-                "match_times": 2,
+                "match_times": 3,
                 "reverse_match": true,
+                "region": [0, 0, 300, 100],
                 "actions": [
                     {
                         "type": "click",
-                        "params": [960, 540]
+                        "params": [960, 540],
+                        "desc": "战斗结束后的操作"
+                    },
+                    {
+                        "type": "sleep",
+                        "params": [1.0]
                     },
                     {
                         "type": "goto_task",

@@ -31,6 +31,7 @@ def init_main_config():
         "click_mode": "sendmessage",
         "screenshot_mode": "win32gui",
         "template_match_step": "0.05",
+        "task_mode": "template",
     }
 
     default_adb_config = {

@@ -52,6 +52,7 @@ class AutoClickGUI:
         self.ocr_conf = float(config["OCRConfig"].get("ocr_confidence", "0.7"))
         self.ocr_gray = config["OCRConfig"].get("ocr_grayscale", "True") == "True"
         self.ocr_thresh = config["OCRConfig"].get("ocr_threshold", "False") == "True"
+        self.task_mode = config["GENERAL"].get("task_mode", "template")
 
         saved_theme = load_theme_config(MAIN_CONFIG_PATH)
         if saved_theme and saved_theme in ("light", "dark"):
@@ -114,12 +115,13 @@ class AutoClickGUI:
         self._hotkey_locked = True
         self.root.after(500, lambda: setattr(self, "_hotkey_locked", False))
 
-        if self.thread and self.thread.is_alive():
+        active_thread = self.thread if self.task_mode == "template" else self.ocr_thread
+        if active_thread and active_thread.is_alive():
             self._stop(is_manual=True)
-            self.log("🛑 热键(F9+F10)触发：停止任务组")
+            self.log(f"🛑 热键(F9+F10)触发：停止{'任务组' if self.task_mode == 'template' else 'OCR任务'}")
         else:
             self._start()
-            self.log("▶️ 热键(F9+F10)触发：启动任务组")
+            self.log(f"▶️ 热键(F9+F10)触发：启动{'任务组' if self.task_mode == 'template' else 'OCR任务'}")
 
     def _on_window_close(self):
         if self.key_listener and self.key_listener.is_alive():
@@ -127,6 +129,9 @@ class AutoClickGUI:
         if self.thread and self.thread.is_alive():
             self.stop_flag = True
             self.thread.join(timeout=2)
+        if self.ocr_thread and self.ocr_thread.is_alive():
+            self.stop_flag = True
+            self.ocr_thread.join(timeout=2)
         self.root.destroy()
 
     def on_screenshot_mode_change(self, event=None):
@@ -368,6 +373,29 @@ class AutoClickGUI:
         )
         restart_btn.pack(side=tk.LEFT, padx=5, pady=3)
 
+        ttk.Label(placeholder_frame, text="任务模式：").pack(side=tk.LEFT, padx=(15, 2), pady=3)
+        self.task_mode_display = {"template": "模板匹配", "ocr": "OCR任务"}
+        self.task_mode_rev = {v: k for k, v in self.task_mode_display.items()}
+        self.task_mode_var = tk.StringVar(value=self.task_mode_display.get(self.task_mode, "模板匹配"))
+        self.task_mode_combo = ttk.Combobox(
+            placeholder_frame,
+            textvariable=self.task_mode_var,
+            values=["模板匹配", "OCR任务"],
+            state="readonly",
+            width=10
+        )
+        self.task_mode_combo.pack(side=tk.LEFT, padx=2, pady=3)
+        self.task_mode_combo.bind("<FocusOut>", lambda e: self.task_mode_combo.selection_clear())
+
+        def _on_task_mode_change(*args):
+            display_name = self.task_mode_var.get()
+            mode = self.task_mode_rev.get(display_name, "template")
+            if mode != self.task_mode:
+                self.task_mode = mode
+                self._save_task_mode_to_config(mode)
+                self.log(f"✅ 任务模式已切换为：{display_name}")
+        self.task_mode_var.trace_add("write", _on_task_mode_change)
+
         about_btn = ttk.Button(
             placeholder_frame,
             text="关于",
@@ -376,9 +404,9 @@ class AutoClickGUI:
         about_btn.pack(side=tk.RIGHT, padx=5, pady=3)
 
         task_frame = ttk.Frame(main_notebook)
-        main_notebook.add(task_frame, text="任务配置")
+        main_notebook.add(task_frame, text="图像模板匹配")
 
-        task_group_frame = ttk.LabelFrame(task_frame, text="任务组", padding="5")
+        task_group_frame = ttk.LabelFrame(task_frame, text="模板匹配任务组", padding="5")
         task_group_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(task_group_frame, text="选择任务组：").pack(side=tk.LEFT, padx=5, pady=3)
@@ -475,6 +503,166 @@ class AutoClickGUI:
 
         comfort_btn = ttk.Button(config_frame, text="确认", command=comfort_confirm, width=6)
         comfort_btn.grid(row=2, column=2, padx=(0, 5), pady=3, sticky="w")
+
+        ocr_frame = ttk.Frame(main_notebook)
+        main_notebook.add(ocr_frame, text="OCR")
+
+        ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding="10")
+        ocr_task_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(ocr_task_frame, text="选择任务组：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
+        self.ocr_task_var = tk.StringVar()
+        self.ocr_task_combo = ttk.Combobox(
+            ocr_task_frame,
+            textvariable=self.ocr_task_var,
+            state="readonly",
+            width=25
+        )
+        self.ocr_task_combo.grid(row=0, column=1, padx=2, pady=3, sticky="w")
+        self.ocr_task_combo.bind("<FocusOut>", lambda e: self.ocr_task_combo.selection_clear())
+
+        def _refresh_ocr_tasks():
+            tasks = self.ocr_engine.list_ocr_tasks(self.ocr_task_dir)
+            self.ocr_task_combo["values"] = tasks
+            if tasks:
+                main_config = configparser.ConfigParser()
+                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+                current = main_config["OCRConfig"].get("current_ocr_task", "")
+                if current in tasks:
+                    self.ocr_task_var.set(current)
+                elif not self.ocr_task_var.get() or self.ocr_task_var.get() not in tasks:
+                    self.ocr_task_var.set(tasks[0])
+            else:
+                self.ocr_task_var.set("")
+
+        def _on_ocr_task_change(*args):
+            selected = self.ocr_task_var.get()
+            if not selected:
+                return
+            try:
+                main_config = configparser.ConfigParser()
+                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+                if "OCRConfig" not in main_config:
+                    main_config["OCRConfig"] = {}
+                if main_config["OCRConfig"].get("current_ocr_task") != selected:
+                    main_config["OCRConfig"]["current_ocr_task"] = selected
+                    with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
+                        main_config.write(f)
+                    self.log(f"✅ OCR任务组切换为：{selected}")
+                    try:
+                        task_config = self.ocr_engine.load_ocr_task(selected, self.ocr_task_dir)
+                        self.ocr_engine.apply_ocr_settings(task_config)
+                        self.log(f"  已应用任务中的 OCR 设置")
+                    except Exception as e:
+                        self.log(f"  ⚠️ 应用 OCR 设置失败：{e}")
+            except Exception as e:
+                self.log(f"OCR任务组保存失败：{e}")
+
+        self.ocr_task_var.trace_add("write", _on_ocr_task_change)
+        ttk.Button(ocr_task_frame, text="刷新", command=_refresh_ocr_tasks, width=5).grid(
+            row=0, column=2, padx=2, pady=3, sticky="w")
+        ttk.Button(ocr_task_frame, text="编辑", command=self._edit_ocr_task, width=5).grid(
+            row=0, column=3, padx=2, pady=3, sticky="w")
+        ttk.Button(ocr_task_frame, text="检测GPU", command=self._detect_gpu, width=7).grid(
+            row=0, column=4, padx=2, pady=3, sticky="w")
+
+        ocr_param_frame = ttk.LabelFrame(ocr_frame, text="识别参数", padding="10")
+        ocr_param_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(ocr_param_frame, text="识别语言：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
+        self.ocr_lang_var = tk.StringVar(value=self.ocr_lang)
+        ocr_lang_combo = ttk.Combobox(
+            ocr_param_frame,
+            textvariable=self.ocr_lang_var,
+            values=["ch_sim, en", "ch_tra, en", "en", "ja, en", "ko, en",
+                    "ch_sim", "ch_tra", "ja", "ko", "fr", "de", "es", "th", "vi"],
+            state="readonly",
+            width=35
+        )
+        ocr_lang_combo.grid(row=0, column=1, padx=2, pady=3, sticky="w")
+        ocr_lang_combo.bind("<FocusOut>", lambda e: ocr_lang_combo.selection_clear())
+
+        def _on_ocr_lang_change(*args):
+            lang = self.ocr_lang_var.get()
+            self.ocr_engine.configure(language=lang)
+            self._save_ocr_config_key("ocr_language", lang)
+            self.log(f"✅ 识别语言已切换为：{lang}")
+        self.ocr_lang_var.trace_add("write", _on_ocr_lang_change)
+
+        ttk.Label(ocr_param_frame, text="置信度阈值：").grid(row=0, column=2, padx=(15, 2), pady=3, sticky="w")
+        self.ocr_conf_var = tk.DoubleVar(value=self.ocr_conf)
+        ocr_conf_scale = ttk.Scale(
+            ocr_param_frame,
+            from_=0.3, to=1.0,
+            variable=self.ocr_conf_var,
+            orient=tk.HORIZONTAL,
+            length=100
+        )
+        ocr_conf_scale.grid(row=0, column=3, padx=2, pady=3, sticky="w")
+        self.ocr_conf_label = ttk.Label(ocr_param_frame, text=f"{self.ocr_conf:.2f}", width=4)
+        self.ocr_conf_label.grid(row=0, column=4, padx=2, pady=3, sticky="w")
+
+        def _on_ocr_conf_change(*args):
+            val = round(self.ocr_conf_var.get(), 2)
+            self.ocr_conf_label.config(text=f"{val:.2f}")
+            self.ocr_engine.configure(confidence_threshold=val)
+            self._save_ocr_config_key("ocr_confidence", str(val))
+            self.log(f"✅ 置信度阈值已更新为：{val:.2f}")
+        self.ocr_conf_var.trace_add("write", _on_ocr_conf_change)
+
+        ttk.Label(ocr_param_frame, text="加速设备：").grid(row=1, column=0, padx=5, pady=3, sticky="w")
+        self.ocr_device_var = tk.StringVar(value=self.ocr_device)
+        self.ocr_device_combo = ttk.Combobox(
+            ocr_param_frame,
+            textvariable=self.ocr_device_var,
+            values=[self.ocr_device],
+            state="readonly",
+            width=35
+        )
+        self.ocr_device_combo.grid(row=1, column=1, padx=2, pady=3, sticky="w")
+        self.ocr_device_combo.bind("<FocusOut>", lambda e: self.ocr_device_combo.selection_clear())
+
+        def _on_ocr_device_change(*args):
+            display_name = self.ocr_device_var.get()
+            device = getattr(self, '_device_name_map', {}).get(display_name, display_name)
+            self.ocr_engine.configure(device=device)
+            self._save_ocr_config_key("ocr_device", device)
+            self.log(f"✅ 加速设备已切换为：{display_name}")
+        self.ocr_device_var.trace_add("write", _on_ocr_device_change)
+
+        ocr_pre_frame = ttk.LabelFrame(ocr_frame, text="图像预处理", padding="10")
+        ocr_pre_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        self.ocr_gray_var = tk.BooleanVar(value=self.ocr_gray)
+        def _on_gray_change():
+            enabled = self.ocr_gray_var.get()
+            self.ocr_engine.configure(preprocess={"grayscale": enabled})
+            self._save_ocr_config_key("ocr_grayscale", str(enabled))
+            self.log(f"✅ 灰度化已{'开启' if enabled else '关闭'}")
+        ttk.Checkbutton(ocr_pre_frame, text="灰度化", variable=self.ocr_gray_var,
+                        command=_on_gray_change
+                        ).grid(row=0, column=0, padx=5, pady=3, sticky="w")
+
+        self.ocr_thresh_var = tk.BooleanVar(value=self.ocr_thresh)
+        def _on_thresh_change():
+            enabled = self.ocr_thresh_var.get()
+            self.ocr_engine.configure(preprocess={"threshold_enabled": enabled})
+            self._save_ocr_config_key("ocr_threshold", str(enabled))
+            self.log(f"✅ 二值化已{'开启' if enabled else '关闭'}")
+        ttk.Checkbutton(ocr_pre_frame, text="二值化", variable=self.ocr_thresh_var,
+                        command=_on_thresh_change
+                        ).grid(row=0, column=1, padx=5, pady=3, sticky="w")
+
+        self.ocr_test_btn = ttk.Button(ocr_pre_frame, text="OCR 测试",
+                                       command=self._ocr_test, width=8)
+        self.ocr_test_btn.grid(row=0, column=2, padx=(20, 2), pady=3, sticky="w")
+
+        self.ocr_stop_btn = ttk.Button(ocr_pre_frame, text="停止",
+                                       command=self._stop_ocr_test, width=5,
+                                       state=tk.DISABLED)
+        self.ocr_stop_btn.grid(row=0, column=3, padx=2, pady=3, sticky="w")
+
+        _refresh_ocr_tasks()
 
         adb_frame = ttk.Frame(main_notebook)
         main_notebook.add(adb_frame, text="ADB配置")
@@ -647,175 +835,6 @@ class AutoClickGUI:
         adb_enabled_var.trace_add("write", update_adb_config)
         adb_mode_var.trace_add("write", update_adb_config)
         adb_position_var.trace_add("write", update_adb_config)
-
-        ocr_frame = ttk.Frame(main_notebook)
-        main_notebook.add(ocr_frame, text="OCR")
-
-        ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding="10")
-        ocr_task_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(ocr_task_frame, text="选择任务组：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
-        self.ocr_task_var = tk.StringVar()
-        self.ocr_task_combo = ttk.Combobox(
-            ocr_task_frame,
-            textvariable=self.ocr_task_var,
-            state="readonly",
-            width=25
-        )
-        self.ocr_task_combo.grid(row=0, column=1, padx=2, pady=3, sticky="w")
-        self.ocr_task_combo.bind("<FocusOut>", lambda e: self.ocr_task_combo.selection_clear())
-
-        def _refresh_ocr_tasks():
-            tasks = self.ocr_engine.list_ocr_tasks(self.ocr_task_dir)
-            self.ocr_task_combo["values"] = tasks
-            if tasks:
-                main_config = configparser.ConfigParser()
-                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-                current = main_config["OCRConfig"].get("current_ocr_task", "")
-                if current in tasks:
-                    self.ocr_task_var.set(current)
-                elif not self.ocr_task_var.get() or self.ocr_task_var.get() not in tasks:
-                    self.ocr_task_var.set(tasks[0])
-            else:
-                self.ocr_task_var.set("")
-
-        def _on_ocr_task_change(*args):
-            selected = self.ocr_task_var.get()
-            if not selected:
-                return
-            try:
-                main_config = configparser.ConfigParser()
-                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-                if "OCRConfig" not in main_config:
-                    main_config["OCRConfig"] = {}
-                if main_config["OCRConfig"].get("current_ocr_task") != selected:
-                    main_config["OCRConfig"]["current_ocr_task"] = selected
-                    with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
-                        main_config.write(f)
-                    self.log(f"✅ OCR任务组切换为：{selected}")
-                    try:
-                        task_config = self.ocr_engine.load_ocr_task(selected, self.ocr_task_dir)
-                        self.ocr_engine.apply_ocr_settings(task_config)
-                        self.log(f"  已应用任务中的 OCR 设置")
-                    except Exception as e:
-                        self.log(f"  ⚠️ 应用 OCR 设置失败：{e}")
-            except Exception as e:
-                self.log(f"OCR任务组保存失败：{e}")
-
-        self.ocr_task_var.trace_add("write", _on_ocr_task_change)
-        ttk.Button(ocr_task_frame, text="刷新", command=_refresh_ocr_tasks, width=5).grid(
-            row=0, column=2, padx=2, pady=3, sticky="w")
-        ttk.Button(ocr_task_frame, text="编辑", command=self._edit_ocr_task, width=5).grid(
-            row=0, column=3, padx=2, pady=3, sticky="w")
-        ttk.Button(ocr_task_frame, text="检测GPU", command=self._detect_gpu, width=7).grid(
-            row=0, column=4, padx=2, pady=3, sticky="w")
-
-        ocr_param_frame = ttk.LabelFrame(ocr_frame, text="识别参数", padding="10")
-        ocr_param_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(ocr_param_frame, text="识别语言：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
-        self.ocr_lang_var = tk.StringVar(value=self.ocr_lang)
-        ocr_lang_combo = ttk.Combobox(
-            ocr_param_frame,
-            textvariable=self.ocr_lang_var,
-            values=["ch_sim, en", "ch_tra, en", "en", "ja, en", "ko, en",
-                    "ch_sim", "ch_tra", "ja", "ko", "fr", "de", "es", "th", "vi"],
-            state="readonly",
-            width=35
-        )
-        ocr_lang_combo.grid(row=0, column=1, padx=2, pady=3, sticky="w")
-        ocr_lang_combo.bind("<FocusOut>", lambda e: ocr_lang_combo.selection_clear())
-
-        def _on_ocr_lang_change(*args):
-            lang = self.ocr_lang_var.get()
-            self.ocr_engine.configure(language=lang)
-            self._save_ocr_config_key("ocr_language", lang)
-            self.log(f"✅ 识别语言已切换为：{lang}")
-        self.ocr_lang_var.trace_add("write", _on_ocr_lang_change)
-
-        ttk.Label(ocr_param_frame, text="置信度阈值：").grid(row=0, column=2, padx=(15, 2), pady=3, sticky="w")
-        self.ocr_conf_var = tk.DoubleVar(value=self.ocr_conf)
-        ocr_conf_scale = ttk.Scale(
-            ocr_param_frame,
-            from_=0.3, to=1.0,
-            variable=self.ocr_conf_var,
-            orient=tk.HORIZONTAL,
-            length=100
-        )
-        ocr_conf_scale.grid(row=0, column=3, padx=2, pady=3, sticky="w")
-        self.ocr_conf_label = ttk.Label(ocr_param_frame, text=f"{self.ocr_conf:.2f}", width=4)
-        self.ocr_conf_label.grid(row=0, column=4, padx=2, pady=3, sticky="w")
-
-        def _on_ocr_conf_change(*args):
-            val = round(self.ocr_conf_var.get(), 2)
-            self.ocr_conf_label.config(text=f"{val:.2f}")
-            self.ocr_engine.configure(confidence_threshold=val)
-            self._save_ocr_config_key("ocr_confidence", str(val))
-            self.log(f"✅ 置信度阈值已更新为：{val:.2f}")
-        self.ocr_conf_var.trace_add("write", _on_ocr_conf_change)
-
-        ttk.Label(ocr_param_frame, text="加速设备：").grid(row=1, column=0, padx=5, pady=3, sticky="w")
-        self.ocr_device_var = tk.StringVar(value=self.ocr_device)
-        self.ocr_device_combo = ttk.Combobox(
-            ocr_param_frame,
-            textvariable=self.ocr_device_var,
-            values=[self.ocr_device],
-            state="readonly",
-            width=35
-        )
-        self.ocr_device_combo.grid(row=1, column=1, padx=2, pady=3, sticky="w")
-        self.ocr_device_combo.bind("<FocusOut>", lambda e: self.ocr_device_combo.selection_clear())
-
-        def _on_ocr_device_change(*args):
-            display_name = self.ocr_device_var.get()
-            device = getattr(self, '_device_name_map', {}).get(display_name, display_name)
-            self.ocr_engine.configure(device=device)
-            self._save_ocr_config_key("ocr_device", device)
-            self.log(f"✅ 加速设备已切换为：{display_name}")
-        self.ocr_device_var.trace_add("write", _on_ocr_device_change)
-
-        ocr_pre_frame = ttk.LabelFrame(ocr_frame, text="图像预处理", padding="10")
-        ocr_pre_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        self.ocr_gray_var = tk.BooleanVar(value=self.ocr_gray)
-        def _on_gray_change():
-            enabled = self.ocr_gray_var.get()
-            self.ocr_engine.configure(preprocess={"grayscale": enabled})
-            self._save_ocr_config_key("ocr_grayscale", str(enabled))
-            self.log(f"✅ 灰度化已{'开启' if enabled else '关闭'}")
-        ttk.Checkbutton(ocr_pre_frame, text="灰度化", variable=self.ocr_gray_var,
-                        command=_on_gray_change
-                        ).grid(row=0, column=0, padx=5, pady=3, sticky="w")
-
-        self.ocr_thresh_var = tk.BooleanVar(value=self.ocr_thresh)
-        def _on_thresh_change():
-            enabled = self.ocr_thresh_var.get()
-            self.ocr_engine.configure(preprocess={"threshold_enabled": enabled})
-            self._save_ocr_config_key("ocr_threshold", str(enabled))
-            self.log(f"✅ 二值化已{'开启' if enabled else '关闭'}")
-        ttk.Checkbutton(ocr_pre_frame, text="二值化", variable=self.ocr_thresh_var,
-                        command=_on_thresh_change
-                        ).grid(row=0, column=1, padx=5, pady=3, sticky="w")
-
-        self.ocr_test_btn = ttk.Button(ocr_pre_frame, text="OCR 测试",
-                                       command=self._ocr_test, width=8)
-        self.ocr_test_btn.grid(row=0, column=2, padx=(20, 2), pady=3, sticky="w")
-
-        self.ocr_stop_btn = ttk.Button(ocr_pre_frame, text="停止",
-                                       command=self._stop_ocr_test, width=5,
-                                       state=tk.DISABLED)
-        self.ocr_stop_btn.grid(row=0, column=3, padx=2, pady=3, sticky="w")
-
-        self.ocr_start_btn = ttk.Button(ocr_pre_frame, text="▶ 启动OCR任务",
-                                        command=self._start_ocr, width=14)
-        self.ocr_start_btn.grid(row=0, column=4, padx=(20, 2), pady=3, sticky="w")
-
-        self.ocr_task_stop_btn = ttk.Button(ocr_pre_frame, text="⏹ 停止OCR",
-                                            command=self._stop_ocr, width=10,
-                                            state=tk.DISABLED)
-        self.ocr_task_stop_btn.grid(row=0, column=5, padx=2, pady=3, sticky="w")
-
-        _refresh_ocr_tasks()
 
         other_frame = ttk.Frame(main_notebook)
         main_notebook.add(other_frame, text="其他")
@@ -1057,6 +1076,17 @@ class AutoClickGUI:
                 config.write(f)
         except Exception as e:
             self.log(f"⚠️ 保存 OCR 配置失败：{e}")
+
+    def _save_task_mode_to_config(self, mode):
+        try:
+            config = configparser.ConfigParser()
+            if os.path.exists(MAIN_CONFIG_PATH):
+                config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+            config["GENERAL"]["task_mode"] = mode
+            with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
+                config.write(f)
+        except Exception as e:
+            self.log(f"⚠️ 保存任务模式配置失败：{e}")
 
     def _load_window_combobox(self):
         self.window_list = get_all_visible_windows_simple()
@@ -1426,6 +1456,10 @@ class AutoClickGUI:
             messagebox.showerror("错误", f"无法打开文件：{str(e)}")
 
     def _start(self):
+        if self.task_mode == "ocr":
+            self._start_ocr()
+            return
+
         if self.thread and self.thread.is_alive():
             self.stop_flag = True
             self.worker_generation += 1
@@ -1481,8 +1515,8 @@ class AutoClickGUI:
         self.ocr_thread = threading.Thread(target=worker_ocr, args=(self,), daemon=True)
         self.ocr_thread.start()
 
-        self.ocr_start_btn.config(state=tk.DISABLED)
-        self.ocr_task_stop_btn.config(state=tk.NORMAL)
+        self.start_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL)
         self.log("🚀 OCR任务已启动！")
 
     def _stop_ocr(self):
@@ -1490,8 +1524,6 @@ class AutoClickGUI:
         self.worker_generation += 1
         if self.ocr_thread and self.ocr_thread.is_alive():
             self.ocr_thread.join(timeout=3.0)
-        self.ocr_start_btn.config(state=tk.NORMAL)
-        self.ocr_task_stop_btn.config(state=tk.DISABLED)
         self.log("🛑 OCR任务已手动停止")
 
     def _stop(self, is_manual=True):
@@ -1506,8 +1538,6 @@ class AutoClickGUI:
             self.ocr_thread.join(timeout=1.0)
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
-        self.ocr_start_btn.config(state=tk.NORMAL)
-        self.ocr_task_stop_btn.config(state=tk.DISABLED)
         self.ocr_test_btn.config(state=tk.NORMAL)
         self.ocr_stop_btn.config(state=tk.DISABLED)
         if is_manual:

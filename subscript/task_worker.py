@@ -568,8 +568,8 @@ def worker_ocr(app):
                                 matched_target_idx = -1
 
                                 for target_idx, target in enumerate(targets):
-                                    target_text = target.get("text", "")
-                                    if not target_text:
+                                    target_text_config = target.get("text", "")
+                                    if not target_text_config:
                                         app.log(f"⚠️ 任务[{task_name}]目标{target_idx}：text为空，跳过")
                                         continue
 
@@ -586,7 +586,57 @@ def worker_ocr(app):
                                     cropped = ocr_engine._crop_region(screenshot, region)
                                     ocr_texts = ocr_engine.recognize_text_only(cropped)
 
-                                    is_match = ocr_engine._match_text(ocr_texts, target_text, match_mode)
+                                    # ---- 支持单文本 / AND逻辑 / OR逻辑 ----
+                                    is_match = False
+                                    text_desc = ""
+
+                                    if isinstance(target_text_config, str):
+                                        text_desc = f"'{target_text_config}'"
+                                        is_match = ocr_engine._match_text(ocr_texts, target_text_config, match_mode)
+
+                                    elif isinstance(target_text_config, list) and len(target_text_config) >= 2:
+                                        operator = target_text_config[0].lower()
+                                        text_list = target_text_config[1:]
+
+                                        if operator == "and":
+                                            all_matched = True
+                                            unmatched_texts = []
+                                            for t_text in text_list:
+                                                if not ocr_engine._match_text(ocr_texts, t_text, match_mode):
+                                                    all_matched = False
+                                                    unmatched_texts.append(f"'{t_text}'")
+                                                    break
+                                            is_match = all_matched
+                                            text_desc = f"AND: [{', '.join(repr(t) for t in text_list)}]"
+                                            if all_matched:
+                                                app.log(f"任务[{task_name}]目标{target_idx}：AND逻辑匹配成功 | 所有文字均匹配")
+                                            else:
+                                                app.log(f"任务[{task_name}]目标{target_idx}：AND逻辑匹配失败 | 未匹配的文字: {', '.join(unmatched_texts)}")
+
+                                        elif operator == "or":
+                                            any_matched = False
+                                            matched_text_item = None
+                                            for t_text in text_list:
+                                                if ocr_engine._match_text(ocr_texts, t_text, match_mode):
+                                                    any_matched = True
+                                                    matched_text_item = f"'{t_text}'"
+                                                    break
+                                            is_match = any_matched
+                                            text_desc = f"OR: [{', '.join(repr(t) for t in text_list)}]"
+                                            if any_matched:
+                                                app.log(f"任务[{task_name}]目标{target_idx}：OR逻辑匹配成功 | 匹配的文字: {matched_text_item}")
+                                            else:
+                                                app.log(f"任务[{task_name}]目标{target_idx}：OR逻辑匹配失败 | 所有文字均未匹配")
+
+                                        else:
+                                            app.log(f"⚠️ 任务[{task_name}]目标{target_idx}：未知逻辑运算符 '{operator}'，仅支持 'and' 和 'or'")
+                                            is_match = False
+                                            text_desc = f"UNKNOWN: [{', '.join(repr(t) for t in text_list)}]"
+                                    else:
+                                        app.log(f"⚠️ 任务[{task_name}]目标{target_idx}：无效的text配置格式")
+                                        is_match = False
+                                        text_desc = str(target_text_config)
+
                                     effective_match = (not reverse_match and is_match) or (reverse_match and not is_match)
 
                                     if effective_match:
@@ -598,12 +648,15 @@ def worker_ocr(app):
                                     match_type = "正向匹配" if not reverse_match else "反向匹配"
                                     region_desc = f"区域{region}" if region else "全图"
 
-                                    app.log(f"任务[{task_name}]目标{target_idx}('{target_text}')：{match_type} | {region_desc} | 模式:{match_mode} | 当前匹配:{is_match} | 连续满足次数:{current_continuous}/{match_times}")
+                                    if isinstance(target_text_config, str):
+                                        app.log(f"任务[{task_name}]目标{target_idx}('{target_text_config}')：{match_type} | {region_desc} | 模式:{match_mode} | 当前匹配:{is_match} | 连续满足次数:{current_continuous}/{match_times}")
+                                    else:
+                                        app.log(f"任务[{task_name}]目标{target_idx}({text_desc})：{match_type} | {region_desc} | 模式:{match_mode} | 结果:{is_match} | 连续满足次数:{current_continuous}/{match_times}")
 
                                     if current_continuous >= match_times:
                                         matched_target = target
                                         matched_target_idx = target_idx
-                                        matched_desc = target.get("desc", target_text)
+                                        matched_desc = target.get("desc", text_desc.strip("'"))
                                         if not reverse_match:
                                             app.log(f"✅ 任务[{task_name}]：目标{target_idx}('{matched_desc}')连续匹配成功，已选中")
                                         else:
