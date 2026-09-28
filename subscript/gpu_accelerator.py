@@ -76,30 +76,44 @@ class GPUAccelerator:
 
     # ---------- 检测 ----------
 
-    def detect(self):
+    def detect(self, force_refresh=False):
         """执行 GPU 检测（按需调用，避免启动卡顿）
 
         优先从 gpu.json 缓存读取，避免每次启动都执行 dxdiag/wmic 等重操作。
         缓存无效时才执行实时检测。
 
+        :param force_refresh: 强制实时检测（忽略缓存）。用于"检测GPU"按钮。
         :return: self（链式调用）
         """
-        if self._detected:
+        if self._detected and not force_refresh:
             return self
 
         # 优先从缓存加载，避免启动时执行 dxdiag（10~30秒）
-        cached = self.load_from_cache()
-        if cached and cached.get("devices"):
-            self._load_from_cache_data(cached)
-            self._detected = True
-            return self
+        if not force_refresh:
+            cached = self.load_from_cache()
+            if cached and cached.get("devices"):
+                self._load_from_cache_data(cached)
+                self._detected = True
+                return self
+
+        try:
+            self.gpu_info = self._detect_gpus()
+        except Exception:
+            self.gpu_info = {"vendor": "cpu", "name": "CPU (GPU 检测失败)", "devices": []}
+
+        try:
+            self._onnx_ready = bool(_try_import_onnx())
+            self._onnx_providers = _ONNX_PROVIDERS
+        except Exception:
+            self._onnx_ready = False
+            self._onnx_providers = []
+
+        try:
+            self.enable_opencv_accel()
+        except Exception:
+            self._opencv_ocl_ready = False
 
         self._detected = True
-
-        self.gpu_info = self._detect_gpus()
-        self._onnx_ready = bool(_try_import_onnx())
-        self._onnx_providers = _ONNX_PROVIDERS
-        self.enable_opencv_accel()
         self._save_to_cache()
         return self
 
@@ -121,16 +135,26 @@ class GPUAccelerator:
 
     def _save_to_cache(self):
         """将 GPU 检测结果保存到项目根目录 gpu.json"""
+        cache_path = _get_gpu_cache_path()
+
+        # 安全获取设备列表，即使 torch 驱动异常也不影响缓存写入
         try:
-            cache_path = _get_gpu_cache_path()
-            data = {
-                "vendor": self.gpu_info.get("vendor", "unknown"),
-                "name": self.gpu_info.get("name", "未知"),
-                "devices": self.gpu_info.get("devices", []),
-                "opencv_ocl_ready": self._opencv_ocl_ready,
-                "onnx_providers": list(self._onnx_providers),
-                "device_list": GPUAccelerator._build_device_list_raw(),
-            }
+            device_list = GPUAccelerator._build_device_list_raw()
+        except Exception:
+            device_list = [
+                {"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"},
+            ]
+
+        data = {
+            "vendor": self.gpu_info.get("vendor", "unknown"),
+            "name": self.gpu_info.get("name", "未知"),
+            "devices": self.gpu_info.get("devices", []),
+            "opencv_ocl_ready": self._opencv_ocl_ready,
+            "onnx_providers": list(self._onnx_providers),
+            "device_list": device_list,
+        }
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -449,7 +473,11 @@ class GPUAccelerator:
 
     @staticmethod
     def _build_device_list_raw():
-        """实时检测所有可用加速设备列表（CUDA + DirectML + CPU）"""
+        """实时检测所有可用加速设备列表（CUDA + DirectML + CPU）
+
+        注意：torch / torch_directml 可能因驱动缺失、硬件异常等原因抛出
+        RuntimeError 等非 ImportError 异常，因此这里捕获所有 Exception。
+        """
         devices = [
             {"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"},
         ]
@@ -459,13 +487,16 @@ class GPUAccelerator:
             import torch
             if torch.cuda.is_available():
                 for i in range(torch.cuda.device_count()):
-                    devices.append({
-                        "index": i,
-                        "name": f"NVIDIA {torch.cuda.get_device_name(i)}",
-                        "device": f"cuda:{i}",
-                        "backend": "cuda",
-                    })
-        except ImportError:
+                    try:
+                        devices.append({
+                            "index": i,
+                            "name": f"NVIDIA {torch.cuda.get_device_name(i)}",
+                            "device": f"cuda:{i}",
+                            "backend": "cuda",
+                        })
+                    except Exception:
+                        pass
+        except Exception:
             pass
 
         # —— DirectML（NVIDIA / AMD / Intel 三家通用，需 pip install torch-directml） ——
@@ -473,14 +504,17 @@ class GPUAccelerator:
             import torch_directml
             dml_count = torch_directml.device_count()
             for i in range(dml_count):
-                dml_name = torch_directml.device_name(i)
-                devices.append({
-                    "index": i,
-                    "name": f"DirectML: {dml_name}",
-                    "device": f"dml:{i}",
-                    "backend": "dml",
-                })
-        except ImportError:
+                try:
+                    dml_name = torch_directml.device_name(i)
+                    devices.append({
+                        "index": i,
+                        "name": f"DirectML: {dml_name}",
+                        "device": f"dml:{i}",
+                        "backend": "dml",
+                    })
+                except Exception:
+                    pass
+        except Exception:
             pass
 
         return devices

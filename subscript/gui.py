@@ -1343,8 +1343,11 @@ class AutoClickGUI:
 
         :param force_refresh: 是否强制实时检测（忽略 gpu.json 缓存）
         """
-        from gpu_accelerator import GPUAccelerator
-        devices = GPUAccelerator.detect_cuda_devices(force_refresh=force_refresh)
+        try:
+            from gpu_accelerator import GPUAccelerator
+            devices = GPUAccelerator.detect_cuda_devices(force_refresh=force_refresh)
+        except Exception:
+            devices = [{"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"}]
 
         self._device_name_map = {}  # {display_name: device_key}
         display_names = []
@@ -1355,15 +1358,17 @@ class AutoClickGUI:
 
         self.ocr_device_combo.config(values=display_names)
 
-        current_key = self.ocr_device_var.get()
-        current_display = None
+        current_val = self.ocr_device_var.get()
+        match_display = None
         for name, key in self._device_name_map.items():
-            if key == current_key:
-                current_display = name
+            if name == current_val or key == current_val:
+                match_display = name
                 break
 
-        if current_display is not None:
-            self.ocr_device_var.set(current_display)
+        # 仅在值确实需要变化时才设置，避免触发不必要的 _on_ocr_device_change 回调
+        if match_display is not None:
+            if match_display != current_val:
+                self.ocr_device_var.set(match_display)
         elif display_names:
             self.ocr_device_var.set(display_names[0])
 
@@ -1371,9 +1376,12 @@ class AutoClickGUI:
         """按需检测 GPU 硬件加速状态"""
         self.log("正在检测 GPU ...")
         self.root.update_idletasks()
-        gpu_info = self.ocr_engine.gpu_summary()
-        for line in gpu_info.split("\n"):
-            self.log(f"🖥️ {line}")
+        try:
+            gpu_info = self.ocr_engine.gpu_summary(force_refresh=True)
+            for line in gpu_info.split("\n"):
+                self.log(f"\U0001f5a5\ufe0f {line}")
+        except Exception as e:
+            self.log(f"\u26a0\ufe0f GPU 检测异常：{e}")
         self._refresh_ocr_device_list(force_refresh=True)
 
     def _ocr_test(self):

@@ -271,9 +271,12 @@ class OCREngine:
             "preprocess": dict(self._preprocess),
         }
 
-    def gpu_summary(self):
-        """返回 GPU 加速状态摘要"""
-        self._gpu.detect()
+    def gpu_summary(self, force_refresh=False):
+        """返回 GPU 加速状态摘要
+
+        :param force_refresh: 强制重新检测 GPU（忽略缓存和 _detected 标志）
+        """
+        self._gpu.detect(force_refresh=force_refresh)
         lines = self._gpu.summary().split("\n")
         # 追加 ONNX 运行时提供器信息
         providers = _detect_onnx_providers()
