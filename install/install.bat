@@ -1,53 +1,68 @@
 @echo off
-chcp 65001 > nul 2>&1  :: ÉèÖÃ±àÂëÎªUTF-8£¬±ÜÃâÖĞÎÄÂÒÂë
-title ×Ô¶¯Ê¶±ğµã»÷¹¤¾ß - ÒÀÀµ¿â°²×°½Å±¾
+chcp 65001 > nul 2>&1
+title è‡ªåŠ¨è¯†åˆ«ç‚¹å‡»å·¥å…· - ä¸€é”®å®‰è£…è„šæœ¬
+
 echo ==============================================
-echo ×Ô¶¯Ê¶±ğµã»÷¹¤¾ß - ÒÀÀµ¿â°²×°½Å±¾
+echo   è‡ªåŠ¨è¯†åˆ«ç‚¹å‡»å·¥å…· - ä¸€é”®å®‰è£…è„šæœ¬
 echo ==============================================
 echo.
 
-:: Éı¼¶pipµ½×îĞÂ°æ±¾
-echo [1/3] Éı¼¶pip¹¤¾ß...
+:: ========================================
+:: Step 1: å‡çº§ pip
+:: ========================================
+echo [1/4] å‡çº§ pip åˆ°æœ€æ–°ç‰ˆ...
 python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
 if errorlevel 1 (
-    echo ¾¯¸æ£ºpipÉı¼¶Ê§°Ü£¬¿ÉÄÜÓ°ÏìºóĞøÒÀÀµ°²×°£¡
-    echo Çë¼ì²éPython»·¾³ÊÇ·ñÕıÈ·ÅäÖÃ£¨ÒÑÌí¼Óµ½ÏµÍ³»·¾³±äÁ¿£©
+    echo [è­¦å‘Š] pip å‡çº§å¤±è´¥ï¼Œä¸å½±å“åç»­å®‰è£…ã€‚è¯·å…ˆæ£€æŸ¥æœ¬æœº Python æ˜¯å¦å·²ç»åˆ›å»ºç¯å¢ƒå˜é‡ã€‚
+)
+echo.
+
+:: ========================================
+:: Step 2: å®‰è£…å…¨éƒ¨ä¾èµ–
+:: ========================================
+echo [2/4] å®‰è£…å…¨éƒ¨ä¾èµ–åŒ…ï¼ˆrequirements.txtï¼‰...
+python -m pip install -r ..\requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+if errorlevel 1 (
+    echo [é”™è¯¯] ä¾èµ–å®‰è£…å¤±è´¥ï¼Œè¯·æ£€æŸ¥ç½‘ç»œè¿æ¥æˆ– Python ç¯å¢ƒã€‚
     pause
     exit /b 1
 )
 echo.
 
-:: °²×°ºËĞÄ±Ø×°ÒÀÀµ
-echo [2/3] °²×°ºËĞÄÒÀÀµ¿â...
-python -m pip install ^
-opencv-python ^
-numpy ^
-pygetwindow ^
-psutil ^
-pywin32 ^
-pyautogui ^
-pillow ^
-plyer ^
-pynput ^
--i https://pypi.tuna.tsinghua.edu.cn/simple
+:: ========================================
+:: Step 3: ä¿®å¤ onnxruntime å†²çª
+:: rapidocr-onnxruntime çš„ä¾èµ–é“¾ä¼šè‡ªåŠ¨æ‹‰å– onnxruntimeï¼ˆçº¯CPUç‰ˆï¼‰ï¼Œ
+:: ä¸ onnxruntime-directmlï¼ˆDirectML GPUç‰ˆï¼‰äº§ç”Ÿæ¨¡å—è¦†ç›–å†²çªï¼Œ
+:: é«˜ç‰ˆæœ¬ CPU ç‰ˆä¼šè¦†ç›–ä½ç‰ˆæœ¬ DirectML ç‰ˆï¼Œå¯¼è‡´ DmlExecutionProvider ä¸å¯ç”¨ã€‚
+:: æ­¤å¤„åŒæ—¶å¸è½½ä¸¤ä¸ªç‰ˆæœ¬ï¼Œå†é‡è£… onnxruntime-directmlï¼Œç¡®ä¿å¹²å‡€ç¯å¢ƒã€‚
+:: ========================================
+echo [3/4] ä¿®å¤ onnxruntime å†²çª...
+echo         å¸è½½ onnxruntimeï¼ˆCPUç‰ˆï¼‰åŠ onnxruntime-directmlï¼ˆGPUç‰ˆï¼‰...
+python -m pip uninstall onnxruntime onnxruntime-directml -y 2>nul
+echo         é‡è£… onnxruntime-directmlï¼ˆDirectML GPUç‰ˆï¼‰...
+python -m pip install onnxruntime-directml -i https://pypi.tuna.tsinghua.edu.cn/simple
 if errorlevel 1 (
-    echo ´íÎó£ººËĞÄÒÀÀµ°²×°Ê§°Ü£¡
-    echo ¿ÉÄÜÔ­Òò£ºÍøÂçÎÊÌâ / Python°æ±¾¹ıµÍ£¨Ğè3.7+£©
-    pause
-    exit /b 1
+    echo [è­¦å‘Š] onnxruntime-directml é‡è£…å¤±è´¥ï¼Œè¯·æ‰‹åŠ¨å®‰è£…ã€‚
+) else (
+    echo [å®Œæˆ] onnxruntime-directml å·²é‡è£…ï¼ŒDirectML GPU åŠ é€Ÿå¯ç”¨ã€‚
 )
 echo.
 
-:: ¿ÉÑ¡£º°²×°¶îÍâ¼æÈİĞÔÒÀÀµ
-echo [3/3] °²×°¿ÉÑ¡¼æÈİĞÔÒÀÀµ...
-python -m pip install pyperclip -i https://pypi.tuna.tsinghua.edu.cn/simple
-if errorlevel 1 (
-    echo ¾¯¸æ£º¿ÉÑ¡¼æÈİĞÔÒÀÀµ°²×°Ê§°Ü£¡
-    echo ²»Ó°ÏìºËĞÄ¹¦ÄÜ£¬½ö¿ÉÄÜÓ°Ïì²¿·ÖÏµÍ³µÄÏÔÊ¾ÊÊÅä
+:: ========================================
+:: Step 4: æ¸…ç† GPU ç¼“å­˜
+:: ========================================
+echo [4/4] æ¸…ç† GPU ç¼“å­˜ï¼Œä¸‹æ¬¡å¯åŠ¨å°†é‡æ–°æ£€æµ‹...
+if exist "..\gpu.json" (
+    del "..\gpu.json"
+    echo [å®Œæˆ] å·²åˆ é™¤ GPU ç¼“å­˜æ–‡ä»¶ gpu.jsonã€‚
+) else (
+    echo [ä¿¡æ¯] GPU ç¼“å­˜æ–‡ä»¶ä¸å­˜åœ¨ï¼Œè·³è¿‡ã€‚
 )
 echo.
 
 echo ==============================================
-echo ÒÀÀµ¿â°²×°Íê³É£¡
+echo   å®‰è£…å…¨éƒ¨å®Œæˆï¼
+echo   ç°åœ¨å¯ä»¥è¿è¡Œ main.pyw å¯åŠ¨ç¨‹åºã€‚åˆæ¬¡å¯åŠ¨æˆ–å°†å­˜åœ¨é—®é¢˜ï¼Œé‡å¯å³å¯ã€‚
 echo ==============================================
+echo.
 pause
