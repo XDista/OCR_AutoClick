@@ -129,7 +129,7 @@ def capture_adb_screenshot(device_serial=""):
 
         screenshot_pil = Image.open(temp_png).convert('RGB')
         img = cv2.cvtColor(np.array(screenshot_pil), cv2.COLOR_RGB2BGR)
-        os.remove(temp_png)
+        screenshot_pil.close()
         app.log(f"ADB截图成功（设备：{device_serial or '默认'}）：{img.shape[1]}x{img.shape[0]}")
         return img
     except subprocess.CalledProcessError as e:
@@ -141,6 +141,12 @@ def capture_adb_screenshot(device_serial=""):
     except Exception as e:
         app.log(f"ADB截图处理失败：{str(e)}")
         return None
+    finally:
+        if os.path.exists(temp_png):
+            try:
+                os.remove(temp_png)
+            except OSError:
+                pass
 
 
 def capture_window_memory(hwnd):
@@ -150,6 +156,12 @@ def capture_window_memory(hwnd):
     :return: OpenCV BGR图像 / None（失败）
     """
     app = get_app()
+    hdc_window = None
+    hdc_mem = None
+    mem_dc = None
+    bmp = None
+    old_bmp = None
+
     try:
         window_rect = win32gui.GetWindowRect(hwnd)
         window_left, window_top = window_rect[0], window_rect[1]
@@ -171,7 +183,7 @@ def capture_window_memory(hwnd):
 
         bmp = win32ui.CreateBitmap()
         bmp.CreateCompatibleBitmap(hdc_mem, client_width, client_height)
-        mem_dc.SelectObject(bmp)
+        old_bmp = mem_dc.SelectObject(bmp)
 
         mem_dc.BitBlt(
             (0, 0), (client_width, client_height),
@@ -192,16 +204,30 @@ def capture_window_memory(hwnd):
 
     finally:
         try:
-            if 'bmp' in locals():
+            if bmp is not None and mem_dc is not None and old_bmp is not None:
+                mem_dc.SelectObject(old_bmp)
+        except Exception:
+            pass
+        try:
+            if bmp is not None:
                 win32gui.DeleteObject(bmp.GetHandle())
-            if 'mem_dc' in locals():
+        except Exception:
+            pass
+        try:
+            if mem_dc is not None:
                 mem_dc.DeleteDC()
-            if 'hdc_mem' in locals():
+        except Exception:
+            pass
+        try:
+            if hdc_mem is not None:
                 hdc_mem.DeleteDC()
-            if 'hdc_window' in locals() and hwnd:
+        except Exception:
+            pass
+        try:
+            if hdc_window is not None and hwnd:
                 win32gui.ReleaseDC(hwnd, hdc_window)
-        except Exception as release_e:
-            app.log(f"win32memory资源释放警告：{str(release_e)}")
+        except Exception:
+            pass
 
 
 def capture_window_printwindow(hwnd):
@@ -211,6 +237,12 @@ def capture_window_printwindow(hwnd):
     :return: OpenCV BGR图像 / None（失败）
     """
     app = get_app()
+    hdc_window = None
+    hdc_mem = None
+    mem_dc = None
+    bmp = None
+    old_bmp = None
+
     try:
         client_left, client_top, client_width, client_height = get_window_client_rect(hwnd)
         if client_width <= 0 or client_height <= 0:
@@ -223,7 +255,7 @@ def capture_window_printwindow(hwnd):
 
         bmp = win32ui.CreateBitmap()
         bmp.CreateCompatibleBitmap(hdc_mem, client_width, client_height)
-        mem_dc.SelectObject(bmp)
+        old_bmp = mem_dc.SelectObject(bmp)
 
         user32 = ctypes.WinDLL('user32.dll')
         LRESULT = wintypes.LONG
@@ -248,10 +280,6 @@ def capture_window_printwindow(hwnd):
 
         if not result:
             app.log("PrintWindow截图失败：API调用失败")
-            win32gui.DeleteObject(bmp.GetHandle())
-            mem_dc.DeleteDC()
-            hdc_mem.DeleteDC()
-            win32gui.ReleaseDC(hwnd, hdc_window)
             return None
 
         signed_ints_array = bmp.GetBitmapBits(True)
@@ -259,17 +287,39 @@ def capture_window_printwindow(hwnd):
         img.shape = (client_height, client_width, 4)
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-        win32gui.DeleteObject(bmp.GetHandle())
-        mem_dc.DeleteDC()
-        hdc_mem.DeleteDC()
-        win32gui.ReleaseDC(hwnd, hdc_window)
-
         app.log(f"PrintWindow截图成功：{client_width}x{client_height}")
         return img
 
     except Exception as e:
         app.log(f"PrintWindow截图失败：{str(e)}")
         return None
+
+    finally:
+        try:
+            if bmp is not None and mem_dc is not None and old_bmp is not None:
+                mem_dc.SelectObject(old_bmp)
+        except Exception:
+            pass
+        try:
+            if bmp is not None:
+                win32gui.DeleteObject(bmp.GetHandle())
+        except Exception:
+            pass
+        try:
+            if mem_dc is not None:
+                mem_dc.DeleteDC()
+        except Exception:
+            pass
+        try:
+            if hdc_mem is not None:
+                hdc_mem.DeleteDC()
+        except Exception:
+            pass
+        try:
+            if hdc_window is not None and hwnd:
+                win32gui.ReleaseDC(hwnd, hdc_window)
+        except Exception:
+            pass
 
 
 def capture_window_win32gui(hwnd):
@@ -304,10 +354,6 @@ def capture_window_win32gui(hwnd):
 def capture_window(window, screenshot_mode="Win32GUI", adb_device_serial=""):
     """截图统一入口"""
     app = get_app()
-    hdc_window = None
-    hdc_memdc = None
-    hbitmap = None
-    hwnd = None
 
     try:
         if screenshot_mode == "ADB":
@@ -350,24 +396,3 @@ def capture_window(window, screenshot_mode="Win32GUI", adb_device_serial=""):
     except Exception as e:
         app.log(f"截图失败：{str(e)}")
         return None
-    finally:
-        if hbitmap and hdc_memdc:
-            try:
-                hdc_memdc.SelectObject(None)
-            except Exception:
-                pass
-        if hbitmap:
-            try:
-                win32gui.DeleteObject(hbitmap.GetHandle())
-            except Exception:
-                app.log("警告：位图对象删除失败")
-        if hdc_memdc:
-            try:
-                hdc_memdc.DeleteDC()
-            except Exception:
-                pass
-        if hdc_window and hwnd:
-            try:
-                win32gui.ReleaseDC(hwnd, hdc_window)
-            except Exception:
-                pass

@@ -3,6 +3,7 @@ import time
 import datetime
 import configparser
 import json
+import gc
 import cv2
 import win32gui
 from project_paths import TASKS_DIR, REFS_DIR, TASK_OCR_DIR, MAIN_CONFIG_PATH
@@ -11,7 +12,7 @@ from screenshot_capture import capture_window
 from image_matcher import template_match
 from action_executor import execute_action, send_windows_notification
 from config_manager import init_task_config, init_ocr_task_config
-from ocr_engine import OCREngine
+from ocr_engine import OCREngine, cleanup_ocr_reader
 
 # 工作线程使用的全局任务索引
 current_task_index = 0
@@ -26,6 +27,10 @@ def worker(app):
     stop_source = ""
     task_continuous_match = {}
     cached_target_window = None
+    config_cache = None
+    config_cache_time = 0.0
+    screenshot = None
+    screenshot_gray = None
 
     worker_gen = app.worker_generation
 
@@ -38,8 +43,14 @@ def worker(app):
         error_msg = ""
 
         try:
-            main_config = configparser.ConfigParser()
-            main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+            now_ts = time.time()
+            if config_cache is None or now_ts - config_cache_time > 2.0:
+                main_config = configparser.ConfigParser()
+                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+                config_cache = main_config
+                config_cache_time = now_ts
+            else:
+                main_config = config_cache
 
             freq = float(main_config["GENERAL"]["recognition_frequency"])
             start_time_str = main_config["GENERAL"]["next_start_time"]
@@ -340,9 +351,7 @@ def worker(app):
                                             jump_triggered = True
                                             break
 
-                                for branch_idx in range(len(ref_images_list)):
-                                    branch_key = f"{task_name}_branch{branch_idx}"
-                                    task_continuous_match[branch_key] = 0
+                                task_continuous_match.clear()
 
                                 if not jump_triggered and not stop_execution:
                                     current_task_index += 1
@@ -400,6 +409,15 @@ def worker(app):
                 app.log("🛑 程序已停止")
 
             time.sleep(1.0)
+        finally:
+            try:
+                del screenshot
+            except Exception:
+                pass
+            try:
+                del screenshot_gray
+            except Exception:
+                pass
 
 
 def worker_ocr(app):
@@ -411,6 +429,9 @@ def worker_ocr(app):
     stop_source = ""
     task_continuous_match = {}
     cached_target_window = None
+    config_cache = None
+    config_cache_time = 0.0
+    screenshot = None
 
     worker_gen = app.worker_generation
 
@@ -430,8 +451,14 @@ def worker_ocr(app):
         error_msg = ""
 
         try:
-            main_config = configparser.ConfigParser()
-            main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+            now_ts = time.time()
+            if config_cache is None or now_ts - config_cache_time > 2.0:
+                main_config = configparser.ConfigParser()
+                main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+                config_cache = main_config
+                config_cache_time = now_ts
+            else:
+                main_config = config_cache
 
             freq = float(main_config["GENERAL"]["recognition_frequency"])
             start_time_str = main_config["GENERAL"]["next_start_time"]
@@ -708,9 +735,7 @@ def worker_ocr(app):
                                             jump_triggered = True
                                             break
 
-                                for target_idx in range(len(targets)):
-                                    target_key = f"ocr_{task_name}_target{target_idx}"
-                                    task_continuous_match[target_key] = 0
+                                task_continuous_match.clear()
 
                                 if not jump_triggered and not stop_execution:
                                     current_task_index += 1
@@ -769,3 +794,13 @@ def worker_ocr(app):
         app.log("🛑 OCR程序已停止")
 
     time.sleep(1.0)
+    try:
+        del screenshot
+    except Exception:
+        pass
+    try:
+        del ocr_engine
+    except Exception:
+        pass
+    cleanup_ocr_reader()
+    gc.collect()

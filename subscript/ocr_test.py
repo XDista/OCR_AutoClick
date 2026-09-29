@@ -301,6 +301,12 @@ def _capture_memory(hwnd):
     import win32con
     from window_utils import get_window_client_rect
 
+    hdc_win = None
+    hdc_mem = None
+    mem_dc = None
+    bmp = None
+    old_bmp = None
+
     try:
         if not win32gui.IsWindow(hwnd):
             return None
@@ -321,7 +327,7 @@ def _capture_memory(hwnd):
 
         bmp = win32ui.CreateBitmap()
         bmp.CreateCompatibleBitmap(hdc_mem, width, height)
-        mem_dc.SelectObject(bmp)
+        old_bmp = mem_dc.SelectObject(bmp)
 
         mem_dc.BitBlt(
             (0, 0), (width, height),
@@ -332,14 +338,35 @@ def _capture_memory(hwnd):
         img = np.frombuffer(data, dtype="uint8")
         img.shape = (height, width, 4)
 
-        win32gui.DeleteObject(bmp.GetHandle())
-        mem_dc.DeleteDC()
-        hdc_mem.DeleteDC()
-        win32gui.ReleaseDC(hwnd, hdc_win)
-
         return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
     except Exception:
         return None
+    finally:
+        try:
+            if bmp is not None and mem_dc is not None and old_bmp is not None:
+                mem_dc.SelectObject(old_bmp)
+        except Exception:
+            pass
+        try:
+            if bmp is not None:
+                win32gui.DeleteObject(bmp.GetHandle())
+        except Exception:
+            pass
+        try:
+            if mem_dc is not None:
+                mem_dc.DeleteDC()
+        except Exception:
+            pass
+        try:
+            if hdc_mem is not None:
+                hdc_mem.DeleteDC()
+        except Exception:
+            pass
+        try:
+            if hdc_win is not None and hwnd:
+                win32gui.ReleaseDC(hwnd, hdc_win)
+        except Exception:
+            pass
 
 
 @_register("PrintWindow")
@@ -350,6 +377,12 @@ def _capture_printwindow(hwnd):
     import win32gui
     import win32ui
     from window_utils import get_window_client_rect
+
+    hdc_win = None
+    hdc_mem = None
+    mem_dc = None
+    bmp = None
+    old_bmp = None
 
     try:
         if not win32gui.IsWindow(hwnd):
@@ -365,7 +398,7 @@ def _capture_printwindow(hwnd):
 
         bmp = win32ui.CreateBitmap()
         bmp.CreateCompatibleBitmap(hdc_mem, width, height)
-        mem_dc.SelectObject(bmp)
+        old_bmp = mem_dc.SelectObject(bmp)
 
         user32 = ctypes.WinDLL("user32.dll")
         LRESULT = wintypes.LONG
@@ -394,11 +427,32 @@ def _capture_printwindow(hwnd):
         img = np.frombuffer(data, dtype="uint8")
         img.shape = (height, width, 4)
 
-        win32gui.DeleteObject(bmp.GetHandle())
-        mem_dc.DeleteDC()
-        hdc_mem.DeleteDC()
-        win32gui.ReleaseDC(hwnd, hdc_win)
-
         return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
     except Exception:
         return None
+    finally:
+        try:
+            if bmp is not None and mem_dc is not None and old_bmp is not None:
+                mem_dc.SelectObject(old_bmp)
+        except Exception:
+            pass
+        try:
+            if bmp is not None:
+                win32gui.DeleteObject(bmp.GetHandle())
+        except Exception:
+            pass
+        try:
+            if mem_dc is not None:
+                mem_dc.DeleteDC()
+        except Exception:
+            pass
+        try:
+            if hdc_mem is not None:
+                hdc_mem.DeleteDC()
+        except Exception:
+            pass
+        try:
+            if hdc_win is not None and hwnd:
+                win32gui.ReleaseDC(hwnd, hdc_win)
+        except Exception:
+            pass

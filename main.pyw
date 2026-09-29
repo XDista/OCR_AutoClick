@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "sub
 from subscript.gui import AutoClickGUI
 from app_registry import set_app
 
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.5.0"
 UPDATE_TIME = "2026-09-27 00:00:00"
 
 try:

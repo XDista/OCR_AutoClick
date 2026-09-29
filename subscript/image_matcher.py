@@ -26,8 +26,8 @@ def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.
     app = get_app()
 
     try:
-        ref_pil = Image.open(ref_image_path).convert('L')
-        ref_img = np.array(ref_pil)
+        with Image.open(ref_image_path) as ref_pil:
+            ref_img = np.array(ref_pil.convert('L'))
     except FileNotFoundError:
         try:
             if app:
@@ -65,6 +65,8 @@ def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.
 
         result = cv2.matchTemplate(screenshot_gray, scaled_ref, cv2.TM_CCOEFF_NORMED)
         _, current_sim, _, _ = cv2.minMaxLoc(result)
+        del result
+        del scaled_ref
 
         if current_sim > max_similarity:
             max_similarity = current_sim
@@ -73,4 +75,5 @@ def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.
             break
 
     is_match = max_similarity >= threshold
+    del ref_img
     return is_match, max_similarity

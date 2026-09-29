@@ -88,6 +88,12 @@ class GPUAccelerator:
         if self._detected and not force_refresh:
             return self
 
+        if force_refresh:
+            global _ONNX_PROVIDERS
+            _ONNX_PROVIDERS = []
+            self._onnx_providers = []
+            self._onnx_ready = False
+
         # 优先从缓存加载，避免启动时执行 dxdiag（10~30秒）
         if not force_refresh:
             cached = self.load_from_cache()
@@ -365,6 +371,16 @@ class GPUAccelerator:
 
         self._opencv_ocl_ready = False
         return False
+
+    def disable_opencv_accel(self):
+        """停用 OpenCV OpenCL 加速，释放 OpenCL GPU 资源"""
+        if not _OPENCV_AVAILABLE:
+            return
+        try:
+            cv2.ocl.setUseOpenCL(False)
+            self._opencv_ocl_ready = False
+        except Exception:
+            pass
 
     @property
     def opencv_ocl_enabled(self):

@@ -15,6 +15,7 @@ GPU 加速方案：
 import os
 import json
 import gc
+import threading
 
 from gpu_accelerator import get_gpu_accelerator
 
@@ -23,6 +24,7 @@ from gpu_accelerator import get_gpu_accelerator
 _ocr_reader = None          # RapidOCR 实例
 _ocr_reader_device = None   # 当前实例对应的设备字符串
 _ocr_reader_providers = None  # 实际使用的 ONNX providers
+_reader_lock = threading.Lock()  # 保护 _ocr_reader 的创建/销毁
 
 
 _ONNX_AVAILABLE_PROVIDERS = None
@@ -41,8 +43,22 @@ def _detect_onnx_providers():
     return _ONNX_AVAILABLE_PROVIDERS
 
 
+def _release_onnx_gpu_memory():
+    """释放 ONNX Runtime 占用的 GPU 显存"""
+    try:
+        import onnxruntime as ort
+        providers = ort.get_available_providers()
+        if "CUDAExecutionProvider" in providers:
+            import torch
+            torch.cuda.empty_cache()
+        if "DmlExecutionProvider" in providers:
+            gc.collect()
+    except Exception:
+        pass
+
+
 def _get_reader(device="cpu"):
-    """获取或创建 RapidOCR Reader 实例
+    """获取或创建 RapidOCR Reader 实例（线程安全）
 
     RapidOCR 原生支持 ONNX Runtime 的 DirectML / CUDA / CPU 后端。
     通过参数 det_use_dml / cls_use_dml / rec_use_dml 启用 DirectML，
@@ -56,78 +72,80 @@ def _get_reader(device="cpu"):
     """
     global _ocr_reader, _ocr_reader_device, _ocr_reader_providers
 
-    if _ocr_reader is not None and _ocr_reader_device == device:
-        return _ocr_reader
-
-    if _ocr_reader is not None:
-        del _ocr_reader
-        _ocr_reader = None
-        _ocr_reader_device = None
-        _ocr_reader_providers = None
-        gc.collect()
-
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-    except ImportError:
-        raise ImportError(
-            "RapidOCR 未安装，请执行:\n"
-            "  pip install rapidocr-onnxruntime\n"
-            "GPU 加速需额外安装:\n"
-            "  NVIDIA/AMD/Intel: pip install onnxruntime-directml\n"
-            "  NVIDIA 专用:       pip install onnxruntime-gpu"
-        )
-
-    available = _detect_onnx_providers()
-    base_kwargs = {"text_score": 0.0}
-
-    if device.startswith("dml"):
-        if "DmlExecutionProvider" in available:
-            dml_device_id = int(device.split(":")[1]) if ":" in device else 0
-            base_kwargs.update(
-                det_use_dml=True, cls_use_dml=True, rec_use_dml=True
-            )
-
-            from rapidocr_onnxruntime.utils.infer_engine import OrtInferSession
-            _original_get_ep_list = OrtInferSession._get_ep_list
-
-            def _patched_get_ep_list(self):
-                ep_list = _original_get_ep_list(self)
-                for i, (ep, opts) in enumerate(ep_list):
-                    if ep == "DmlExecutionProvider":
-                        ep_list[i] = (ep, {**opts, "device_id": dml_device_id})
-                return ep_list
-
-            OrtInferSession._get_ep_list = _patched_get_ep_list
-            try:
-                _ocr_reader = RapidOCR(**base_kwargs)
-            finally:
-                OrtInferSession._get_ep_list = _original_get_ep_list
-            _ocr_reader_providers = _read_actual_providers(_ocr_reader)
-            _ocr_reader_device = device
+    with _reader_lock:
+        if _ocr_reader is not None and _ocr_reader_device == device:
             return _ocr_reader
-        else:
-            print(
-                "[RapidOCR] DirectML 不可用，请安装 onnxruntime-directml，"
-                "暂时回退到 CPU。",
-                flush=True,
+
+        if _ocr_reader is not None:
+            del _ocr_reader
+            _ocr_reader = None
+            _ocr_reader_device = None
+            _ocr_reader_providers = None
+            gc.collect()
+            _release_onnx_gpu_memory()
+
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except ImportError:
+            raise ImportError(
+                "RapidOCR 未安装，请执行:\n"
+                "  pip install rapidocr-onnxruntime\n"
+                "GPU 加速需额外安装:\n"
+                "  NVIDIA/AMD/Intel: pip install onnxruntime-directml\n"
+                "  NVIDIA 专用:       pip install onnxruntime-gpu"
             )
 
-    elif device.startswith("cuda"):
-        if "CUDAExecutionProvider" in available:
-            base_kwargs.update(
-                det_use_cuda=True, cls_use_cuda=True, rec_use_cuda=True
-            )
-        else:
-            print(
-                "[RapidOCR] CUDA 不可用，请安装 onnxruntime-gpu，"
-                "暂时回退到 CPU。",
-                flush=True,
-            )
+        available = _detect_onnx_providers()
+        base_kwargs = {"text_score": 0.0}
 
-    _ocr_reader = RapidOCR(**base_kwargs)
-    _ocr_reader_providers = _read_actual_providers(_ocr_reader)
-    _ocr_reader_device = device
-    return _ocr_reader
+        if device.startswith("dml"):
+            if "DmlExecutionProvider" in available:
+                dml_device_id = int(device.split(":")[1]) if ":" in device else 0
+                base_kwargs.update(
+                    det_use_dml=True, cls_use_dml=True, rec_use_dml=True
+                )
+
+                from rapidocr_onnxruntime.utils.infer_engine import OrtInferSession
+                _original_get_ep_list = OrtInferSession._get_ep_list
+
+                def _patched_get_ep_list(self):
+                    ep_list = _original_get_ep_list(self)
+                    for i, (ep, opts) in enumerate(ep_list):
+                        if ep == "DmlExecutionProvider":
+                            ep_list[i] = (ep, {**opts, "device_id": dml_device_id})
+                    return ep_list
+
+                OrtInferSession._get_ep_list = _patched_get_ep_list
+                try:
+                    _ocr_reader = RapidOCR(**base_kwargs)
+                finally:
+                    OrtInferSession._get_ep_list = _original_get_ep_list
+                _ocr_reader_providers = _read_actual_providers(_ocr_reader)
+                _ocr_reader_device = device
+                return _ocr_reader
+            else:
+                print(
+                    "[RapidOCR] DirectML 不可用，请安装 onnxruntime-directml，"
+                    "暂时回退到 CPU。",
+                    flush=True,
+                )
+
+        elif device.startswith("cuda"):
+            if "CUDAExecutionProvider" in available:
+                base_kwargs.update(
+                    det_use_cuda=True, cls_use_cuda=True, rec_use_cuda=True
+                )
+            else:
+                print(
+                    "[RapidOCR] CUDA 不可用，请安装 onnxruntime-gpu，"
+                    "暂时回退到 CPU。",
+                    flush=True,
+                )
+
+        _ocr_reader = RapidOCR(**base_kwargs)
+        _ocr_reader_providers = _read_actual_providers(_ocr_reader)
+        _ocr_reader_device = device
+        return _ocr_reader
 
 
 def _read_actual_providers(reader):
@@ -155,6 +173,19 @@ def get_reader_providers():
     """返回当前缓存的 Reader 实际使用的 ONNX 执行提供器"""
     global _ocr_reader_providers
     return _ocr_reader_providers or ["CPUExecutionProvider"]
+
+
+def cleanup_ocr_reader():
+    """显式释放模块级缓存的 OCR Reader（退出时调用）"""
+    global _ocr_reader, _ocr_reader_device, _ocr_reader_providers
+    with _reader_lock:
+        if _ocr_reader is not None:
+            del _ocr_reader
+            _ocr_reader = None
+            _ocr_reader_device = None
+            _ocr_reader_providers = None
+            gc.collect()
+            _release_onnx_gpu_memory()
 
 
 # ==================== OCR 引擎核心 ====================

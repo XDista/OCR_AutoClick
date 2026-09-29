@@ -20,7 +20,7 @@ from theme.theme_manager import (
     load_theme_config,
     save_theme_config,
 )
-from ocr_engine import OCREngine
+from ocr_engine import OCREngine, cleanup_ocr_reader
 from ocr_test import OCRTest
 from project_paths import BASE_DIR, MAIN_CONFIG_PATH, TASKS_DIR
 from config_manager import init_main_config, init_task_config
@@ -126,12 +126,21 @@ class AutoClickGUI:
     def _on_window_close(self):
         if self.key_listener and self.key_listener.is_alive():
             self.key_listener.stop()
+        self.stop_flag = True
+        self.worker_generation += 1
         if self.thread and self.thread.is_alive():
-            self.stop_flag = True
-            self.thread.join(timeout=2)
+            self.thread.join(timeout=3.0)
         if self.ocr_thread and self.ocr_thread.is_alive():
-            self.stop_flag = True
-            self.ocr_thread.join(timeout=2)
+            self.ocr_thread.join(timeout=3.0)
+        try:
+            cleanup_ocr_reader()
+        except Exception:
+            pass
+        try:
+            from gpu_accelerator import get_gpu_accelerator
+            get_gpu_accelerator().disable_opencv_accel()
+        except Exception:
+            pass
         self.root.destroy()
 
     def on_screenshot_mode_change(self, event=None):
@@ -1541,9 +1550,9 @@ class AutoClickGUI:
         self.stop_flag = True
         self.worker_generation += 1
         if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=1.0)
+            self.thread.join(timeout=3.0)
         if self.ocr_thread and self.ocr_thread.is_alive():
-            self.ocr_thread.join(timeout=1.0)
+            self.ocr_thread.join(timeout=3.0)
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.ocr_test_btn.config(state=tk.NORMAL)
@@ -1620,9 +1629,17 @@ class AutoClickGUI:
 
         ttk.Button(content_frame, text="关闭", command=about_window.destroy).pack(pady=10)
 
+    _MAX_LOG_LINES = 5000
+
     def log(self, msg):
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log_text.config(state=tk.NORMAL)
+
+        line_count = int(self.log_text.index('end-1c').split('.')[0])
+        if line_count >= self._MAX_LOG_LINES:
+            delete_lines = line_count - self._MAX_LOG_LINES + 500
+            self.log_text.delete('1.0', f'{delete_lines}.0')
+
         self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
 
         if self.auto_scroll:
