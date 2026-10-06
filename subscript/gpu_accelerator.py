@@ -62,6 +62,58 @@ def _try_import_onnx():
     return _ONNX_PROVIDERS
 
 
+def _get_gpu_names_via_wmic():
+    """通过 WMIC 获取系统 GPU 名称列表（Windows）
+
+    不依赖任何第三方库，仅使用 subprocess + WMIC。
+    用于替代 torch_directml.device_name()。
+
+    :return: list[str]，GPU 名称列表，失败时返回空列表
+    """
+    if sys.platform != "win32":
+        return []
+
+    try:
+        result = subprocess.run(
+            ["wmic", "path", "Win32_VideoController", "get", "Name,AdapterCompatibility"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        output = result.stdout
+    except Exception:
+        return []
+
+    # 解析 WMIC 输出，提取 GPU 名称
+    # WMIC 实际输出列顺序为：AdapterCompatibility  Name（厂商在前，名称在后）
+    lines = [l.strip() for l in output.splitlines() if l.strip()]
+    header_idx = -1
+    for i, line in enumerate(lines):
+        if "AdapterCompatibility" in line and "Name" in line:
+            header_idx = i
+            break
+
+    if header_idx < 0:
+        return []
+
+    names = []
+    for i in range(header_idx + 1, len(lines)):
+        # WMIC 输出格式：厂商名称 + 多个空格 + GPU 名称
+        # 例："NVIDIA                NVIDIA GeForce RTX 4090"
+        parts = lines[i].rsplit("  ", 1)
+        vendor = parts[0].strip() if len(parts) > 1 else ""
+        name = parts[1].strip() if len(parts) > 1 else lines[i].strip()
+
+        # 仅保留真实 GPU 厂商（排除虚拟显示适配器）
+        vendor_lower = vendor.lower()
+        is_real_gpu = any(
+            kw in vendor_lower for kw in ("nvidia", "amd", "ati", "intel", "radeon")
+        )
+        if name and is_real_gpu:
+            names.append(name)
+
+    return names
+
+
 # ==================== GPU 检测 ====================
 
 class GPUAccelerator:
@@ -491,8 +543,9 @@ class GPUAccelerator:
     def _build_device_list_raw():
         """实时检测所有可用加速设备列表（CUDA + DirectML + CPU）
 
-        注意：torch / torch_directml 可能因驱动缺失、硬件异常等原因抛出
-        RuntimeError 等非 ImportError 异常，因此这里捕获所有 Exception。
+        DirectML 设备可通过 ONNX Runtime + WMIC 检测（无需 torch-directml）。
+        注意：torch 可能因驱动缺失、硬件异常等原因抛出 RuntimeError
+        等非 ImportError 异常，因此这里捕获所有 Exception。
         """
         devices = [
             {"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"},
@@ -515,21 +568,34 @@ class GPUAccelerator:
         except Exception:
             pass
 
-        # —— DirectML（NVIDIA / AMD / Intel 三家通用，需 pip install torch-directml） ——
+        # —— DirectML（通过 ONNX Runtime + WMIC，无需 torch-directml） ——
         try:
-            import torch_directml
-            dml_count = torch_directml.device_count()
-            for i in range(dml_count):
-                try:
-                    dml_name = torch_directml.device_name(i)
-                    devices.append({
-                        "index": i,
-                        "name": f"DirectML: {dml_name}",
-                        "device": f"dml:{i}",
-                        "backend": "dml",
-                    })
-                except Exception:
-                    pass
+            import onnxruntime as ort
+            if "DmlExecutionProvider" in ort.get_available_providers():
+                # 通过 WMIC 获取系统 GPU 名称（Windows 系统级 API，无第三方依赖）
+                gpu_names = _get_gpu_names_via_wmic()
+
+                # 排除已在 CUDA 分支中列出的 GPU（避免 NVIDIA 卡重复出现）
+                cuda_names = {
+                    d["name"].replace("NVIDIA ", "") for d in devices
+                    if d.get("backend") == "cuda"
+                }
+
+                dml_index = 0
+                for gpu_name in gpu_names:
+                    # 模糊去重：CUDA 名和 WMIC 名可能略有差异
+                    if any(cn in gpu_name or gpu_name in cn for cn in cuda_names if cn):
+                        continue
+                    try:
+                        devices.append({
+                            "index": dml_index,
+                            "name": f"DirectML: {gpu_name}",
+                            "device": f"dml:{dml_index}",
+                            "backend": "dml",
+                        })
+                        dml_index += 1
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -539,20 +605,10 @@ class GPUAccelerator:
     def get_torch_device(device_str):
         """将设备字符串转为 PyTorch device 对象
 
-        :param device_str: "cpu" / "cuda:0" / "dml:0" ...
+        :param device_str: "cpu" / "cuda:0" ...
         :return: torch.device
         """
         import torch
-        if device_str.startswith("dml"):
-            gpu_id = int(device_str.split(":")[1]) if ":" in device_str else 0
-            try:
-                import torch_directml
-                return torch_directml.device(gpu_id)
-            except ImportError:
-                raise ImportError(
-                    "DirectML 设备需要安装 torch-directml，请执行:"
-                    " pip install torch-directml"
-                )
         return torch.device(device_str)
 
 
