@@ -611,13 +611,20 @@ class AutoClickGUI:
         self.ocr_conf_label = ttk.Label(ocr_param_frame, text=f"{self.ocr_conf:.2f}", width=4)
         self.ocr_conf_label.grid(row=0, column=4, padx=2, pady=3, sticky="w")
 
-        def _on_ocr_conf_change(*args):
-            val = round(self.ocr_conf_var.get(), 2)
+        def _on_ocr_conf_drag(value):
+            """拖动滑块时：仅更新显示和引擎配置，不写入文件"""
+            val = round(float(value), 2)
             self.ocr_conf_label.config(text=f"{val:.2f}")
             self.ocr_engine.configure(confidence_threshold=val)
+
+        def _on_ocr_conf_release(value):
+            """松开滑块时：写入配置文件并记录日志"""
+            val = round(float(value), 2)
             self._save_ocr_config_key("ocr_confidence", str(val))
             self.log(f"✅ 置信度阈值已更新为：{val:.2f}")
-        self.ocr_conf_var.trace_add("write", _on_ocr_conf_change)
+
+        ocr_conf_scale.config(command=_on_ocr_conf_drag)
+        ocr_conf_scale.bind("<ButtonRelease-1>", lambda e: _on_ocr_conf_release(self.ocr_conf_var.get()))
 
         ttk.Label(ocr_param_frame, text="加速设备：").grid(row=1, column=0, padx=5, pady=3, sticky="w")
         self.ocr_device_var = tk.StringVar(value=self.ocr_device)
