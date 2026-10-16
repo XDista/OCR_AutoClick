@@ -985,7 +985,12 @@ class AutoClickGUI:
         try:
             if os.path.exists(self.SCREENXY_PATH):
                 if sys.platform == "win32":
-                    os.startfile(self.SCREENXY_PATH)
+                    python_exe = sys.executable
+                    exe_name = os.path.basename(python_exe).lower()
+                    if not exe_name.startswith("pythonw"):
+                        python_exe = os.path.join(os.path.dirname(python_exe),
+                                                  exe_name.replace("python", "pythonw", 1))
+                    subprocess.Popen([python_exe, self.SCREENXY_PATH])
                 elif sys.platform == "darwin":
                     subprocess.run(["open", self.SCREENXY_PATH])
                 else:
@@ -1020,8 +1025,14 @@ class AutoClickGUI:
                 messagebox.showerror("错误", f"目标配置目录不存在：\n{target_config_dir}")
                 return
 
+            python_exe = sys.executable
+            if sys.platform == "win32":
+                exe_name = os.path.basename(python_exe).lower()
+                if exe_name.startswith("pythonw"):
+                    python_exe = os.path.join(os.path.dirname(python_exe),
+                                              exe_name.replace("pythonw", "python", 1))
             subprocess.Popen(
-                [sys.executable, self.SYNC_FILE_PATH, target_config_dir],
+                [python_exe, self.SYNC_FILE_PATH, target_config_dir],
                 creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
             )
             self.log(f"✅ 已打开配置同步工具，目标目录：{target_config_dir}")
@@ -1033,7 +1044,12 @@ class AutoClickGUI:
         try:
             if os.path.exists(self.adb_screenshot_path):
                 if sys.platform == "win32":
-                    os.startfile(self.adb_screenshot_path)
+                    python_exe = sys.executable
+                    exe_name = os.path.basename(python_exe).lower()
+                    if not exe_name.startswith("pythonw"):
+                        python_exe = os.path.join(os.path.dirname(python_exe),
+                                                  exe_name.replace("python", "pythonw", 1))
+                    subprocess.Popen([python_exe, self.adb_screenshot_path])
                 elif sys.platform == "darwin":
                     subprocess.run(["open", self.adb_screenshot_path])
                 else:

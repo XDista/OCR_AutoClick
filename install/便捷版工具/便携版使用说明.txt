@@ -1,0 +1,23 @@
+OCR_AutoClick 便携版（解压即用）使用说明
+================================================
+
+本压缩包已内置 Python 3.12.7 运行时和全部依赖库，无需安装任何环境。
+
+【使用方法】
+1. 解压到任意目录（建议全英文路径，如 D:\OCR_AutoClick）
+2. 将「启动.bat」复制到项目根目录下
+3. 双击「启动.bat」即可运行脚本 GUI
+
+【注意事项】
+- 首次启动会检测 GPU / 初始化 OCR 模型，可能稍慢，甚至超时，属正常现象。
+- 本包已启用 DirectML GPU 加速（onnxruntime-directml）。
+- 请勿删除 python312 目录，它是内置的 Python 运行时。
+
+【目录说明】
+  main.pyw          程序入口
+  python312/        内置 Python + 全部依赖
+  adb/              附带的 ADB 平台工具
+  tasks/            任务组配置
+  task_ocr/         OCR 任务配置
+  refs/             模板匹配参考图
+  config.ini        主配置

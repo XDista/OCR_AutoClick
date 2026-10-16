@@ -310,14 +310,20 @@ def sync_json_content():
             break
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        TARGET_DIR = sys.argv[1]
-    if not os.path.isdir(TARGET_DIR):
-        print(f"错误：目标目录不存在或无效：{TARGET_DIR}")
-        input("按回车键退出...")
-        sys.exit(1)
-    print("=== JSON内容同步工具（支持任意层级） ===")
-    print(f"目标目录：{os.path.abspath(TARGET_DIR)}")
-    print("流程：选择模板文件 -> 设置展开层级 -> 选择需要同步的节点 -> 选择目标文件 -> 确认修改项 -> 同步")
-    print("=" * 40)
-    sync_json_content()
+    try:
+        if len(sys.argv) > 1:
+            TARGET_DIR = sys.argv[1]
+        if not os.path.isdir(TARGET_DIR):
+            print(f"错误：目标目录不存在或无效：{TARGET_DIR}")
+            input("按回车键退出...")
+            sys.exit(1)
+        print("=== JSON内容同步工具（支持任意层级） ===")
+        print(f"目标目录：{os.path.abspath(TARGET_DIR)}")
+        print("流程：选择模板文件 -> 设置展开层级 -> 选择需要同步的节点 -> 选择目标文件 -> 确认修改项 -> 同步")
+        print("=" * 40)
+        sync_json_content()
+    except Exception as e:
+        print(f"\n❌ 发生错误：{e}")
+        import traceback
+        traceback.print_exc()
+    input("\n按回车键退出...")
