@@ -10,6 +10,7 @@ OCR 测试模块 - 独立于配置文件，线程安全
         language="ch_sim,en",
         confidence_threshold=0.5,
         screenshot_mode="Win32GUI",
+        adb_device_serial="",
         on_progress=lambda msg: print(msg),
         on_complete=lambda result: print(result),
     )
@@ -25,6 +26,8 @@ completion 回调收到 dict:
     }
 """
 
+import os
+import subprocess
 import threading
 import time
 
@@ -54,6 +57,7 @@ class OCRTest:
         language="ch_sim,en",
         confidence_threshold=0.5,
         screenshot_mode="Win32GUI",
+        adb_device_serial="",
         grayscale=True,
         threshold_enabled=False,
         threshold_value=127,
@@ -61,11 +65,12 @@ class OCRTest:
         on_complete=None,
     ):
         """
-        :param hwnd: 目标窗口句柄（int）
+        :param hwnd: 目标窗口句柄（int），ADB 模式时可为 0
         :param device: 加速设备，如 "cpu" / "cuda:0" / "dml:1"
         :param language: 识别语言，如 "ch_sim,en"
         :param confidence_threshold: 置信度阈值 0.0~1.0
-        :param screenshot_mode: 截图模式 "Win32GUI" / "Win32Memory" / "PrintWindow"
+        :param screenshot_mode: 截图模式 "Win32GUI" / "Win32Memory" / "PrintWindow" / "ADB"
+        :param adb_device_serial: ADB 设备序列号（仅 ADB 模式使用）
         :param grayscale: 是否灰度化
         :param threshold_enabled: 是否二值化
         :param threshold_value: 二值化阈值 0~255
@@ -77,6 +82,7 @@ class OCRTest:
         self._language = language
         self._confidence_threshold = confidence_threshold
         self._screenshot_mode = screenshot_mode
+        self._adb_device_serial = adb_device_serial
         self._grayscale = grayscale
         self._threshold_enabled = threshold_enabled
         self._threshold_value = threshold_value
@@ -165,7 +171,11 @@ class OCRTest:
 
             # ---- 截图 ----
             self._emit_progress("  正在截取窗口 ...")
-            screenshot = _capture(hwnd=self._hwnd, mode=self._screenshot_mode)
+            screenshot = _capture(
+                hwnd=self._hwnd,
+                mode=self._screenshot_mode,
+                adb_device_serial=self._adb_device_serial,
+            )
             if screenshot is None:
                 self._emit_progress("  ❌ 截图失败")
                 self._finish(self.STATUS_ERROR, None)
@@ -265,10 +275,12 @@ def _register(name):
     return dec
 
 
-def _capture(hwnd, mode):
+def _capture(hwnd, mode, adb_device_serial=""):
     fn = _CAPTURE_REGISTRY.get(mode)
     if fn is None:
         raise ValueError(f"未知的截图模式: {mode}（支持: {', '.join(_CAPTURE_REGISTRY)}）")
+    if mode == "ADB":
+        return fn(adb_device_serial)
     return fn(hwnd)
 
 
@@ -456,3 +468,77 @@ def _capture_printwindow(hwnd):
                 win32gui.ReleaseDC(hwnd, hdc_win)
         except Exception:
             pass
+
+
+@_register("ADB")
+def _capture_adb(device_serial=""):
+    import configparser
+    from project_paths import BASE_DIR
+
+    config = configparser.ConfigParser()
+    config.read(os.path.join(BASE_DIR, "config.ini"), encoding="utf-8")
+
+    if "ADBConfig" not in config:
+        return None
+
+    adb_enabled = config["ADBConfig"].get("adb_enabled", "1")
+    if adb_enabled != "1":
+        return None
+
+    adb_usage_mode = config["ADBConfig"].get("adb_usage_mode", "1")
+    adb_position = config["ADBConfig"].get("adb_position", "").strip()
+    adb_path = None
+
+    if adb_usage_mode == "1":
+        candidate = os.path.join(BASE_DIR, "adb", "platform-tools", "adb.exe")
+        if os.path.exists(candidate):
+            adb_path = candidate
+    elif adb_usage_mode == "2":
+        if adb_position and os.path.exists(adb_position) and adb_position.endswith("adb.exe"):
+            adb_path = adb_position
+    elif adb_usage_mode == "3":
+        adb_path = "adb"
+    elif adb_usage_mode == "4":
+        where_alas = config["GENERAL"].get("where_alas", "").strip()
+        if where_alas and os.path.exists(where_alas):
+            alas_dir = os.path.dirname(where_alas)
+            candidate = os.path.join(alas_dir, "toolkit", "Lib", "site-packages", "adbutils", "binaries", "adb.exe")
+            if os.path.exists(candidate):
+                adb_path = candidate
+
+    if adb_path is None:
+        return None
+
+    adb_cmd_prefix = f'"{adb_path}"'
+    if device_serial and device_serial.strip():
+        adb_cmd_prefix += f' -s {device_serial.strip()}'
+
+    temp_png = os.path.join(BASE_DIR, "adb_screenshot_temp.png")
+    if os.path.exists(temp_png):
+        try:
+            os.remove(temp_png)
+        except OSError:
+            pass
+
+    adb_screenshot_cmd = f'{adb_cmd_prefix} exec-out screencap -p > "{temp_png}"'
+    try:
+        subprocess.run(
+            adb_screenshot_cmd, shell=True, check=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", timeout=10,
+        )
+        if not os.path.exists(temp_png) or os.path.getsize(temp_png) == 0:
+            return None
+
+        from PIL import Image
+        screenshot_pil = Image.open(temp_png).convert('RGB')
+        img = cv2.cvtColor(np.array(screenshot_pil), cv2.COLOR_RGB2BGR)
+        screenshot_pil.close()
+        return img
+    except Exception:
+        return None
+    finally:
+        if os.path.exists(temp_png):
+            try:
+                os.remove(temp_png)
+            except OSError:
+                pass

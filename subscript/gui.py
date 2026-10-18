@@ -1425,6 +1425,7 @@ class AutoClickGUI:
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
         screenshot_mode = main_config["GENERAL"].get("screenshot_mode", "Win32GUI")
+        adb_device_serial = main_config["ADBConfig"].get("adb_device_serial", "") if "ADBConfig" in main_config else ""
 
         ocr_cfg = self.ocr_engine.get_config()
         device = ocr_cfg["device"]
@@ -1439,6 +1440,7 @@ class AutoClickGUI:
             language=language,
             confidence_threshold=ocr_cfg["confidence_threshold"],
             screenshot_mode=screenshot_mode,
+            adb_device_serial=adb_device_serial,
             grayscale=self.ocr_gray_var.get(),
             threshold_enabled=self.ocr_thresh_var.get(),
             on_progress=lambda msg: self.root.after(0, lambda m=msg: self.log(m)),
