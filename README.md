@@ -62,7 +62,7 @@ OCR_AutoClick/
 ### Q：如何使用？
 
 ### A：
-0. 配合 Alas（https://github.com/LmeSzinc/AzurLaneAutoScript）使用效果更佳
+0. 配合 Alas（https://github.com/LmeSzinc/AzurLaneAutoScript） 使用效果更佳
 - 源码版
 1. 下载解压 `OCR_AutoClick (版本号).zip` 文件
 2. 按照 `install` 文件夹内的安装说明，安装必要环境与依赖库
