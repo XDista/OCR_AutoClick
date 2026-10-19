@@ -1,0 +1,10 @@
+{
+  "vendor": "cpu",
+  "name": "CPU",
+  "devices": ["CPU"],
+  "opencv_ocl_ready": false,
+  "onnx_providers": [],
+  "device_list": [
+    {"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"}
+  ]
+}

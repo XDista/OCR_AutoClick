@@ -74,7 +74,7 @@ LIGHT_COLORS = {
     "notebook_tab_bg": "#EBEBEB",
     "notebook_tab_selected_bg": "#FFFFFF",
     "notebook_tab_fg": "#000000",
-    "notebook_border": "#AAAAAA",
+    "notebook_border": "#D0D0D0",
     "scrollbar_thumb": "#C0C0C0",
     "scrollbar_bg": "#F0F0F0",
     "log_bg": "#FFFFFF",
@@ -102,7 +102,7 @@ DARK_COLORS = {
     "notebook_tab_bg": "#333333",
     "notebook_tab_selected_bg": "#1E1E1E",
     "notebook_tab_fg": "#FFFFFF",
-    "notebook_border": "#6A6A6A",
+    "notebook_border": "#555555",
     "scrollbar_thumb": "#555555",
     "scrollbar_bg": "#2D2D2D",
     "log_bg": "#1E1E1E",
@@ -418,6 +418,145 @@ def _stretch_notebook_tabs(widget):
 
 
 # ============================================================
+# 自定义标签页组件（替代 ttk.Notebook）
+# ============================================================
+
+class CustomNotebook(tk.Frame):
+    """自定义标签页组件，替代 ttk.Notebook
+
+    用法：
+        nb = CustomNotebook(root, colors, on_tab_change=callback)
+        frame = ttk.Frame(nb.content)
+        nb.add(frame, text="标签页名")
+    """
+
+    _instances = []
+
+    def __init__(self, parent, colors, on_tab_change=None):
+        tk.Frame.__init__(self, parent, bg=colors["frame_bg"])
+        self._colors = colors
+        self._on_tab_change = on_tab_change
+        self._tabs = []
+        self._separators = []
+        self._selected = -1
+
+        self.tab_border = tk.Frame(self, bg=colors["notebook_border"])
+        self.tab_border.pack(fill=tk.X)
+
+        self.tab_bar = tk.Frame(self.tab_border, bg=colors["frame_bg"])
+        self.tab_bar.pack(fill=tk.X, padx=1, pady=(1, 0))
+
+        self.tab_row = tk.Frame(self.tab_bar, bg=colors["frame_bg"])
+        self.tab_row.pack(fill=tk.X)
+
+        self.tab_sep = tk.Frame(self, bg=colors["notebook_border"], height=1)
+        self.tab_sep.pack(fill=tk.X)
+        self.tab_sep.pack_propagate(False)
+
+        self.content_border = tk.Frame(self, bg=colors["notebook_border"])
+        self.content_border.pack(fill=tk.BOTH, expand=True)
+
+        self.content = tk.Frame(
+            self.content_border,
+            bg=colors["notebook_tab_selected_bg"],
+        )
+        self.content.pack(fill=tk.BOTH, expand=True, padx=1, pady=(0, 1))
+
+        CustomNotebook._instances.append(self)
+
+        top = self.winfo_toplevel()
+        top.bind("<Control-Tab>", self._on_ctrl_tab, add="+")
+        top.bind("<Control-Shift-Tab>", self._on_ctrl_tab, add="+")
+
+    def _on_ctrl_tab(self, event):
+        if not self._tabs:
+            return
+        if event.state & 0x0001:
+            self.select((self._selected - 1) % len(self._tabs))
+        else:
+            self.select((self._selected + 1) % len(self._tabs))
+        return "break"
+
+    def add(self, content_frame, text):
+        idx = len(self._tabs)
+        c = self._colors
+
+        if self._tabs:
+            sep = tk.Frame(self.tab_row, bg=c["notebook_border"], width=1)
+            sep.pack(side=tk.LEFT, fill=tk.Y)
+            sep.pack_propagate(False)
+            self._separators.append(sep)
+
+        tab_btn = tk.Label(
+            self.tab_row,
+            text=text,
+            bg=c["notebook_tab_bg"],
+            fg=c["notebook_tab_fg"],
+            font=(FONT_NAME, FONT_SIZE),
+            padx=4,
+            pady=6,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+            anchor=tk.CENTER,
+        )
+        tab_btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tab_btn.bind("<Button-1>", lambda e, i=idx: self.select(i))
+
+        content_frame.place(in_=self.content, relwidth=1, relheight=1)
+
+        self._tabs.append((tab_btn, content_frame))
+
+        if self._selected < 0:
+            self.select(0)
+
+        return idx
+
+    def select(self, index):
+        if index < 0 or index >= len(self._tabs) or index == self._selected:
+            return
+
+        c = self._colors
+
+        if self._selected >= 0:
+            old_btn, _ = self._tabs[self._selected]
+            old_btn.config(bg=c["notebook_tab_bg"])
+
+        new_btn, new_frame = self._tabs[index]
+        new_btn.config(bg=c["notebook_tab_selected_bg"])
+        new_btn.tkraise()
+        new_frame.lift()
+
+        self._selected = index
+
+        if self._on_tab_change:
+            self._on_tab_change(None)
+
+    def update_colors(self, colors):
+        self._colors = colors
+        self.config(bg=colors["frame_bg"])
+        self.tab_border.config(bg=colors["notebook_border"])
+        self.tab_bar.config(bg=colors["frame_bg"])
+        self.tab_row.config(bg=colors["frame_bg"])
+        self.tab_sep.config(bg=colors["notebook_border"])
+        self.content_border.config(bg=colors["notebook_border"])
+        self.content.config(bg=colors["notebook_tab_selected_bg"])
+        for sep in self._separators:
+            sep.config(bg=colors["notebook_border"])
+        for i, (btn, _) in enumerate(self._tabs):
+            btn.config(fg=colors["notebook_tab_fg"])
+            if i == self._selected:
+                btn.config(bg=colors["notebook_tab_selected_bg"])
+            else:
+                btn.config(bg=colors["notebook_tab_bg"])
+
+    def destroy(self):
+        if self in CustomNotebook._instances:
+            CustomNotebook._instances.remove(self)
+        super().destroy()
+
+
+# ============================================================
 # 主题应用入口
 # ============================================================
 
@@ -454,9 +593,16 @@ def apply_theme(root, theme_id=None):
     _apply_notebook_dark_mode(root, is_dark)
     _apply_combobox_dark_mode(root, is_dark)
 
-    # Notebook 标签页铺满
+    # Notebook 标签页铺满（ttk 原生）
     try:
         _stretch_notebook_tabs(root)
+    except Exception:
+        pass
+
+    # 自定义 Notebook 颜色更新
+    try:
+        for nb in CustomNotebook._instances:
+            nb.update_colors(colors)
     except Exception:
         pass
 
@@ -506,6 +652,12 @@ def apply_theme_to_log(log_text_widget, theme_id=None):
         theme_id = _current_theme_id
     colors = THEMES[theme_id]["colors"]
     log_text_widget.config(bg=colors["log_bg"], fg=colors["log_fg"])
+
+
+def get_current_colors():
+    """获取当前主题的颜色字典"""
+    theme_id = _current_theme_id if _current_theme_id in THEMES else DEFAULT_THEME
+    return THEMES[theme_id]["colors"]
 
 
 def get_log_colors(theme_id=None):

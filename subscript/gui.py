@@ -13,12 +13,14 @@ from pynput.keyboard import Key
 from theme.theme_manager import (
     apply_theme,
     apply_theme_to_log,
+    get_current_colors,
     get_log_colors,
     get_theme_names,
     get_theme_name,
     get_theme_id_by_name,
     load_theme_config,
     save_theme_config,
+    CustomNotebook,
 )
 from ocr_engine import OCREngine, cleanup_ocr_reader
 from ocr_test import OCRTest
@@ -155,7 +157,7 @@ class AutoClickGUI:
             self.log(f"⚠️ 保存截图模式配置失败：{str(e)}")
             messagebox.showerror("错误", f"保存截图模式失败：{e}")
 
-    def _on_tab_changed(self, event):
+    def _on_tab_changed(self, event=None):
         for combobox in [
             getattr(self, 'window_combobox', None),
             getattr(self, 'task_combobox', None),
@@ -312,13 +314,13 @@ class AutoClickGUI:
             self.log(f"❌ ADB命令执行异常：{str(e)}")
 
     def _create_widgets(self):
-        main_notebook = ttk.Notebook(self.root)
+        colors = get_current_colors()
+        main_notebook = CustomNotebook(self.root, colors, on_tab_change=self._on_tab_changed)
+        main_notebook.pack(fill=tk.BOTH, padx=10, pady=5)
+        main_notebook.config(height=320)
+        main_notebook.pack_propagate(False)
 
-        main_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        main_notebook.enable_traversal()
-        main_notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-
-        window_frame = ttk.Frame(main_notebook)
+        window_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(window_frame, text="目标窗口")
 
         select_frame = ttk.LabelFrame(window_frame, text="窗口选择", padding="5")
@@ -412,7 +414,7 @@ class AutoClickGUI:
         )
         about_btn.pack(side=tk.RIGHT, padx=5, pady=3)
 
-        task_frame = ttk.Frame(main_notebook)
+        task_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(task_frame, text="图像模板匹配")
 
         task_group_frame = ttk.LabelFrame(task_frame, text="模板匹配任务组", padding="5")
@@ -513,7 +515,7 @@ class AutoClickGUI:
         comfort_btn = ttk.Button(config_frame, text="确认", command=comfort_confirm, width=6)
         comfort_btn.grid(row=2, column=2, padx=(0, 5), pady=3, sticky="w")
 
-        ocr_frame = ttk.Frame(main_notebook)
+        ocr_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(ocr_frame, text="OCR")
 
         ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding="10")
@@ -680,7 +682,7 @@ class AutoClickGUI:
 
         _refresh_ocr_tasks()
 
-        adb_frame = ttk.Frame(main_notebook)
+        adb_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(adb_frame, text="ADB配置")
 
         main_config = configparser.ConfigParser()
@@ -852,7 +854,7 @@ class AutoClickGUI:
         adb_mode_var.trace_add("write", update_adb_config)
         adb_position_var.trace_add("write", update_adb_config)
 
-        other_frame = ttk.Frame(main_notebook)
+        other_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(other_frame, text="其他")
 
         theme_frame = ttk.LabelFrame(other_frame, text="主题配置", padding="10")
@@ -961,7 +963,8 @@ class AutoClickGUI:
         log_text_frame = ttk.Frame(log_frame)
         log_text_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.log_text = tk.Text(log_text_frame, wrap=tk.WORD, state=tk.DISABLED, bg=log_bg, fg=log_fg)
+        self.log_text = tk.Text(log_text_frame, wrap=tk.WORD, state=tk.DISABLED,
+                                bg=log_bg, fg=log_fg, height=10)
         log_scrollbar = ttk.Scrollbar(log_text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
