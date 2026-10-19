@@ -75,7 +75,7 @@ class AutoClickGUI:
         self.stop_flag = False
 
         self.ocr_engine = OCREngine()
-        self.ocr_engine.configure(device=self.ocr_device, language=self.ocr_lang)
+        self.ocr_engine.configure(device=self.ocr_device, language=self.ocr_lang, confidence_threshold=self.ocr_conf)
         self.ocr_task_dir = os.path.join(BASE_DIR, "task_ocr")
         self._ocr_test_instance = None
 
