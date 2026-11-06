@@ -509,6 +509,9 @@ class CustomNotebook(tk.Frame):
 
         if self._selected < 0:
             self.select(0)
+        else:
+            _, selected_frame = self._tabs[self._selected]
+            selected_frame.lift()
 
         return idx
 

@@ -30,7 +30,8 @@ import os
 import subprocess
 import threading
 import time
-
+import ctypes
+from ctypes import wintypes
 import cv2
 import numpy as np
 
@@ -265,6 +266,20 @@ def _preprocess(img_bgr, *, grayscale, threshold_enabled, threshold_value):
 
 # ==================== 截图（自包含，不依赖 app / config） ====================
 
+# PrintWindow 模块级初始化，避免每次截图重复加载DLL
+_user32 = ctypes.WinDLL("user32.dll")
+_user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
+_user32.PrintWindow.restype = wintypes.BOOL
+_user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+_user32.SendMessageW.restype = wintypes.LONG
+
+_PW_CLIENTONLY = 0x00000001
+_PW_RENDERFULLCONTENT = 0x00000002
+_WM_PAINT = 0x000F
+_WM_PRINT = 0x0317
+_PRF_CLIENT = 0x00000004
+_PW_FLAGS = _PW_CLIENTONLY | _PW_RENDERFULLCONTENT
+
 _CAPTURE_REGISTRY = {}
 
 
@@ -384,8 +399,6 @@ def _capture_memory(hwnd):
 @_register("PrintWindow")
 def _capture_printwindow(hwnd):
     """PrintWindow API 截图（支持被遮挡窗口和硬件加速应用）"""
-    import ctypes
-    from ctypes import wintypes
     import win32gui
     import win32ui
     from window_utils import get_window_client_rect
@@ -412,28 +425,10 @@ def _capture_printwindow(hwnd):
         bmp.CreateCompatibleBitmap(hdc_mem, width, height)
         old_bmp = mem_dc.SelectObject(bmp)
 
-        user32 = ctypes.WinDLL("user32.dll")
-        LRESULT = wintypes.LONG
+        _user32.SendMessageW(hwnd, _WM_PAINT, 0, 0)
+        _user32.SendMessageW(hwnd, _WM_PRINT, mem_dc.GetSafeHdc(), _PRF_CLIENT)
 
-        user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
-        user32.PrintWindow.restype = wintypes.BOOL
-
-        user32.SendMessageW.argtypes = [
-            wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
-        ]
-        user32.SendMessageW.restype = LRESULT
-
-        PW_CLIENTONLY = 0x00000001
-        PW_RENDERFULLCONTENT = 0x00000002
-        WM_PAINT = 0x000F
-        WM_PRINT = 0x0317
-        PRF_CLIENT = 0x00000004
-
-        user32.SendMessageW(hwnd, WM_PAINT, 0, 0)
-        user32.SendMessageW(hwnd, WM_PRINT, mem_dc.GetSafeHdc(), PRF_CLIENT)
-
-        flags = PW_CLIENTONLY | PW_RENDERFULLCONTENT
-        _ = user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), flags)
+        _ = _user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), _PW_FLAGS)
 
         data = bmp.GetBitmapBits(True)
         img = np.frombuffer(data, dtype="uint8")

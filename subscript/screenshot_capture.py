@@ -14,6 +14,19 @@ from project_paths import BASE_DIR
 from window_utils import get_window_client_rect, is_window_visible
 from app_registry import get_app
 
+# ========== PrintWindow 模块级初始化（避免每次截图重复加载DLL） ==========
+_user32 = ctypes.WinDLL('user32.dll')
+_user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
+_user32.PrintWindow.restype = wintypes.BOOL
+_user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+_user32.SendMessageW.restype = wintypes.LONG
+
+_PW_CLIENTONLY = 0x00000001
+_PW_RENDERFULLCONTENT = 0x00000002
+_WM_PAINT = 0x000F
+_WM_PRINT = 0x0317
+_PRF_CLIENT = 0x00000004
+_PW_FLAGS = _PW_CLIENTONLY | _PW_RENDERFULLCONTENT
 
 # ========== ADB工具函数 ==========
 
@@ -257,26 +270,10 @@ def capture_window_printwindow(hwnd):
         bmp.CreateCompatibleBitmap(hdc_mem, client_width, client_height)
         old_bmp = mem_dc.SelectObject(bmp)
 
-        user32 = ctypes.WinDLL('user32.dll')
-        LRESULT = wintypes.LONG
+        _user32.SendMessageW(hwnd, _WM_PAINT, 0, 0)
+        _user32.SendMessageW(hwnd, _WM_PRINT, mem_dc.GetSafeHdc(), _PRF_CLIENT)
 
-        user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
-        user32.PrintWindow.restype = wintypes.BOOL
-
-        user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-        user32.SendMessageW.restype = LRESULT
-
-        PW_CLIENTONLY = 0x00000001
-        PW_RENDERFULLCONTENT = 0x00000002
-        WM_PAINT = 0x000F
-        WM_PRINT = 0x0317
-        PRF_CLIENT = 0x00000004
-
-        user32.SendMessageW(hwnd, WM_PAINT, 0, 0)
-        user32.SendMessageW(hwnd, WM_PRINT, mem_dc.GetSafeHdc(), PRF_CLIENT)
-
-        flags = PW_CLIENTONLY | PW_RENDERFULLCONTENT
-        result = user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), flags)
+        result = _user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), _PW_FLAGS)
 
         if not result:
             app.log("PrintWindow截图失败：API调用失败")

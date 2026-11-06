@@ -31,7 +31,6 @@ from window_utils import (
     get_target_window_from_config,
 )
 from screenshot_capture import (
-    capture_window,
     get_adb_executable_path,
     validate_adb_environment,
 )
@@ -115,8 +114,12 @@ class AutoClickGUI:
         if hasattr(self, "_hotkey_locked") and self._hotkey_locked:
             return
         self._hotkey_locked = True
+        self.pressed_keys.clear()
         self.root.after(500, lambda: setattr(self, "_hotkey_locked", False))
 
+        self.root.after(0, self._execute_hotkey_action)
+
+    def _execute_hotkey_action(self):
         active_thread = self.thread if self.task_mode == "template" else self.ocr_thread
         if active_thread and active_thread.is_alive():
             self._stop(is_manual=True)
@@ -994,10 +997,11 @@ class AutoClickGUI:
                         python_exe = os.path.join(os.path.dirname(python_exe),
                                                   exe_name.replace("python", "pythonw", 1))
                     subprocess.Popen([python_exe, self.SCREENXY_PATH])
-                elif sys.platform == "darwin":
-                    subprocess.run(["open", self.SCREENXY_PATH])
-                else:
-                    subprocess.run(["xdg-open", self.SCREENXY_PATH])
+                # [跨平台预留] 如需支持 macOS / Linux，取消以下注释：
+                # elif sys.platform == "darwin":
+                #     subprocess.run(["open", self.SCREENXY_PATH])
+                # else:
+                #     subprocess.run(["xdg-open", self.SCREENXY_PATH])
                 self.log(f"✅ 已打开坐标拾取工具：{self.SCREENXY_PATH}")
             else:
                 self.log(f"❌ 未找到坐标拾取工具：{self.SCREENXY_PATH}")
@@ -1053,10 +1057,11 @@ class AutoClickGUI:
                         python_exe = os.path.join(os.path.dirname(python_exe),
                                                   exe_name.replace("python", "pythonw", 1))
                     subprocess.Popen([python_exe, self.adb_screenshot_path])
-                elif sys.platform == "darwin":
-                    subprocess.run(["open", self.adb_screenshot_path])
-                else:
-                    subprocess.run(["xdg-open", self.adb_screenshot_path])
+                # [跨平台预留] 如需支持 macOS / Linux，取消以下注释：
+                # elif sys.platform == "darwin":
+                #     subprocess.run(["open", self.adb_screenshot_path])
+                # else:
+                #     subprocess.run(["xdg-open", self.adb_screenshot_path])
                 self.log(f"✅ 已打开ADB截图工具：{self.adb_screenshot_path}")
             else:
                 self.log(f"❌ 未找到ADB截图工具：{self.adb_screenshot_path}")
@@ -1493,10 +1498,11 @@ class AutoClickGUI:
         try:
             if sys.platform == "win32":
                 os.startfile(path)
-            elif sys.platform == "darwin":
-                subprocess.run(["open", path])
-            else:
-                subprocess.run(["xdg-open", path])
+            # [跨平台预留] 如需支持 macOS / Linux，取消以下注释：
+            # elif sys.platform == "darwin":
+            #     subprocess.run(["open", path])
+            # else:
+            #     subprocess.run(["xdg-open", path])
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件：{str(e)}")
 
