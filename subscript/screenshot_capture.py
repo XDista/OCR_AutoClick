@@ -14,7 +14,7 @@ from project_paths import BASE_DIR
 from window_utils import get_window_client_rect, is_window_visible
 from app_registry import get_app
 
-# ========== PrintWindow 模块级初始化（避免每次截图重复加载DLL） ==========
+# PrintWindow 模块级初始化，避免每次截图重复加载DLL
 _user32 = ctypes.WinDLL('user32.dll')
 _user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
 _user32.PrintWindow.restype = wintypes.BOOL
