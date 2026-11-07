@@ -24,6 +24,7 @@ from theme.theme_manager import (
 )
 from ocr_engine import OCREngine, cleanup_ocr_reader
 from ocr_test import OCRTest
+from img_match_test import ImgMatchTest
 from project_paths import BASE_DIR, MAIN_CONFIG_PATH, TASKS_DIR
 from config_manager import init_main_config, init_task_config
 from window_utils import (
@@ -77,6 +78,7 @@ class AutoClickGUI:
         self.ocr_engine.configure(device=self.ocr_device, language=self.ocr_lang, confidence_threshold=self.ocr_conf)
         self.ocr_task_dir = os.path.join(BASE_DIR, "task_ocr")
         self._ocr_test_instance = None
+        self._img_match_test_instance = None
 
         self.hotkey_keys = {Key.f9, Key.f10}
         self.pressed_keys = set()
@@ -351,31 +353,49 @@ class AutoClickGUI:
         self.window_info_var = tk.StringVar(value="未选择窗口 | 标题：- | 进程：- | 句柄：-")
         ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=3)
 
-        match_step_frame = ttk.LabelFrame(window_frame, text="模板匹配配置", padding="5")
-        match_step_frame.pack(fill=tk.X, padx=10, pady=2)
+        schedule_frame = ttk.LabelFrame(window_frame, text="定时运行配置", padding="5")
+        schedule_frame.pack(fill=tk.X, padx=10, pady=2)
 
-        self.match_step_var = tk.StringVar()
-        self._load_match_step_from_config()
+        schedule_inner = ttk.Frame(schedule_frame)
+        schedule_inner.pack(fill=tk.X, padx=5, pady=3)
 
-        ttk.Label(match_step_frame, text="匹配缩略图步长：").grid(row=0, column=0, padx=5, pady=3, sticky=tk.W)
-        step_entry = ttk.Entry(
-            match_step_frame,
-            textvariable=self.match_step_var,
-            width=20
+        self.enable_schedule_var = tk.BooleanVar()
+        schedule_check = ttk.Checkbutton(
+            schedule_inner,
+            text="启用定时运行",
+            variable=self.enable_schedule_var,
+            command=self._toggle_schedule_widgets
         )
-        step_entry.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
+        schedule_check.pack(side=tk.LEFT, padx=5, pady=3)
+
+        ttk.Label(schedule_inner, text="定时时间：").pack(side=tk.LEFT, padx=5, pady=3)
+        self.schedule_time_var = tk.StringVar(value="00:00:00")
+        self.schedule_time_entry = ttk.Entry(
+            schedule_inner,
+            textvariable=self.schedule_time_var,
+            width=12
+        )
+        self.schedule_time_entry.pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Label(schedule_inner, text="（HH:MM:SS）").pack(side=tk.LEFT, padx=5, pady=3)
+
+        ttk.Label(schedule_inner, text="运行模式：").pack(side=tk.LEFT, padx=5, pady=3)
+        self.schedule_mode_var = tk.StringVar()
+        self.schedule_mode_combobox = ttk.Combobox(
+            schedule_inner,
+            textvariable=self.schedule_mode_var,
+            values=["仅一次", "始终"],
+            state="readonly",
+            width=8
+        )
+        self.schedule_mode_combobox.pack(side=tk.LEFT, padx=5, pady=3)
+        self.schedule_mode_combobox.bind("<FocusOut>", lambda e: self.schedule_mode_combobox.selection_clear())
+        self.schedule_mode_combobox.current(0)
 
         ttk.Button(
-            match_step_frame,
-            text="保存步长",
-            command=self._save_match_step_to_config
-        ).grid(row=0, column=2, padx=5, pady=3)
-
-        ttk.Label(
-            match_step_frame,
-            text="（步长范围：0.001~0.2，默认0.05）",
-            foreground="#666666"
-        ).grid(row=0, column=3, padx=5, pady=3, sticky=tk.W)
+            schedule_inner,
+            text="保存配置",
+            command=self._save_schedule_config
+        ).pack(side=tk.LEFT, padx=10, pady=3)
 
         placeholder_frame = ttk.LabelFrame(window_frame, text="功能", padding="5")
         placeholder_frame.pack(fill=tk.X, padx=10, pady=2)
@@ -425,104 +445,75 @@ class AutoClickGUI:
 
         ttk.Label(task_group_frame, text="选择任务组：").pack(side=tk.LEFT, padx=5, pady=3)
         self.task_var = tk.StringVar()
-        self.task_combobox = ttk.Combobox(task_group_frame, textvariable=self.task_var, state="readonly")
-        self.task_combobox.pack(side=tk.LEFT, padx=5, pady=3)
+        self.task_combobox = ttk.Combobox(task_group_frame, textvariable=self.task_var, state="readonly", width=25)
+        self.task_combobox.pack(side=tk.LEFT, padx=2, pady=3)
         self.task_combobox.bind("<<ComboboxSelected>>", self._on_task_group_change)
         self.task_combobox.bind("<FocusOut>", lambda e: self.task_combobox.selection_clear())
-        ttk.Button(task_group_frame, text="刷新", command=self._load_task_groups).pack(side=tk.LEFT, padx=5, pady=3)
-        ttk.Button(task_group_frame, text="新建", command=self._new_task_group).pack(side=tk.LEFT, padx=5, pady=3)
-        ttk.Button(task_group_frame, text="编辑", command=self._edit_task_config).pack(side=tk.LEFT, padx=5, pady=3)
-        ttk.Button(task_group_frame, text="坐标拾取", command=self._open_screenxy).pack(side=tk.LEFT, padx=5, pady=3)
-        ttk.Button(task_group_frame, text="ADB截图工具", command=self._open_adb_screenshot).pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Button(task_group_frame, text="刷新", command=self._load_task_groups).pack(side=tk.LEFT, padx=2, pady=3)
+        ttk.Button(task_group_frame, text="新建", command=self._new_task_group).pack(side=tk.LEFT, padx=2, pady=3)
+        ttk.Button(task_group_frame, text="编辑", command=self._edit_task_config).pack(side=tk.LEFT, padx=2, pady=3)
+        ttk.Button(task_group_frame, text="坐标拾取", command=self._open_screenxy).pack(side=tk.LEFT, padx=2, pady=3)
 
-        schedule_frame = ttk.LabelFrame(task_frame, text="定时运行配置", padding="5")
-        schedule_frame.pack(fill=tk.X, padx=10, pady=2)
+        match_step_frame = ttk.LabelFrame(task_frame, text="模板匹配配置", padding="15")
+        match_step_frame.pack(fill=tk.X, padx=10, pady=2)
 
-        schedule_inner = ttk.Frame(schedule_frame)
-        schedule_inner.pack(fill=tk.X, padx=5, pady=3)
+        self.match_step_var = tk.StringVar()
+        self._load_match_step_from_config()
 
-        self.enable_schedule_var = tk.BooleanVar()
-        schedule_check = ttk.Checkbutton(
-            schedule_inner,
-            text="启用定时运行",
-            variable=self.enable_schedule_var,
-            command=self._toggle_schedule_widgets
+        ttk.Label(match_step_frame, text="匹配缩略图步长：").grid(row=0, column=0, padx=5, pady=3, sticky=tk.W)
+        step_entry = ttk.Entry(
+            match_step_frame,
+            textvariable=self.match_step_var,
+            width=20
         )
-        schedule_check.pack(side=tk.LEFT, padx=5, pady=3)
-
-        ttk.Label(schedule_inner, text="定时时间：").pack(side=tk.LEFT, padx=5, pady=3)
-        self.schedule_time_var = tk.StringVar(value="00:00:00")
-        self.schedule_time_entry = ttk.Entry(
-            schedule_inner,
-            textvariable=self.schedule_time_var,
-            width=12
-        )
-        self.schedule_time_entry.pack(side=tk.LEFT, padx=5, pady=3)
-        ttk.Label(schedule_inner, text="（HH:MM:SS）").pack(side=tk.LEFT, padx=5, pady=3)
-
-        ttk.Label(schedule_inner, text="运行模式：").pack(side=tk.LEFT, padx=5, pady=3)
-        self.schedule_mode_var = tk.StringVar()
-        self.schedule_mode_combobox = ttk.Combobox(
-            schedule_inner,
-            textvariable=self.schedule_mode_var,
-            values=["仅一次", "始终"],
-            state="readonly",
-            width=8
-        )
-        self.schedule_mode_combobox.pack(side=tk.LEFT, padx=5, pady=3)
-        self.schedule_mode_combobox.bind("<FocusOut>", lambda e: self.schedule_mode_combobox.selection_clear())
-        self.schedule_mode_combobox.current(0)
+        step_entry.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
 
         ttk.Button(
-            schedule_inner,
-            text="保存配置",
-            command=self._save_schedule_config
-        ).pack(side=tk.LEFT, padx=10, pady=3)
+            match_step_frame,
+            text="保存步长",
+            command=self._save_match_step_to_config
+        ).grid(row=0, column=2, padx=5, pady=3)
 
-        config_frame = ttk.LabelFrame(task_frame, text="点击配置", padding="5")
-        config_frame.pack(fill=tk.X, padx=10, pady=2)
+        ttk.Label(
+            match_step_frame,
+            text="（步长范围：0.001~0.2，默认0.05）",
+            foreground="#666666"
+        ).grid(row=0, column=3, padx=5, pady=3, sticky=tk.W)
 
-        ttk.Label(config_frame, text="点击模式：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
-        self.click_mode_var = tk.StringVar()
-        self.click_mode_combobox = ttk.Combobox(
-            config_frame,
-            textvariable=self.click_mode_var,
-            values=["SendMessage消息点击", "PyAutoGUI硬件点击"],
-            state="readonly",
-            width=35
+        match_threshold_frame = ttk.LabelFrame(task_frame, text="相似度阈值", padding="11")
+        match_threshold_frame.pack(fill=tk.X, padx=10, pady=2)
+
+        ttk.Label(match_threshold_frame, text="匹配相似度：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
+        self.match_threshold_var = tk.DoubleVar(value=0.9)
+        match_threshold_scale = ttk.Scale(
+            match_threshold_frame,
+            from_=0.5, to=1.0,
+            variable=self.match_threshold_var,
+            orient=tk.HORIZONTAL,
+            length=150
         )
-        self.click_mode_combobox.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
-        self.click_mode_combobox.bind("<<ComboboxSelected>>", self._on_click_mode_change)
-        self.click_mode_combobox.bind("<FocusOut>", lambda e: self.click_mode_combobox.selection_clear())
+        match_threshold_scale.grid(row=0, column=1, padx=2, pady=3, sticky="w")
+        self.match_threshold_label = ttk.Label(match_threshold_frame, text="0.90", width=4)
+        self.match_threshold_label.grid(row=0, column=2, padx=2, pady=3, sticky="w")
 
-        main_config = configparser.ConfigParser()
-        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+        def _on_match_threshold_drag(value):
+            val = round(float(value), 2)
+            self.match_threshold_label.config(text=f"{val:.2f}")
 
-        ttk.Label(config_frame, text="截图模式：").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        self.screenshot_mode_var = tk.StringVar(value=main_config["GENERAL"]["screenshot_mode"])
-        screenshot_mode_combo = ttk.Combobox(config_frame, textvariable=self.screenshot_mode_var,
-            values=["Win32GUI", "PrintWindow", "Win32Memory", "ADB"], state="readonly", width=35)
-        screenshot_mode_combo.grid(row=1, column=1, padx=5, pady=3, sticky="w")
-        screenshot_mode_combo.bind("<<ComboboxSelected>>", self.on_screenshot_mode_change)
-        screenshot_mode_combo.bind("<FocusOut>", lambda e: screenshot_mode_combo.selection_clear())
+        match_threshold_scale.config(command=_on_match_threshold_drag)
 
-        ttk.Label(config_frame, text="ADB设备Serial：").grid(row=2, column=0, padx=5, pady=3, sticky="w")
-        self.adb_device_serial_var = tk.StringVar(value=main_config["ADBConfig"]["adb_device_serial"])
-        adb_device_serial_entry = ttk.Entry(config_frame, textvariable=self.adb_device_serial_var, width=38)
-        adb_device_serial_entry.grid(row=2, column=1, padx=5, pady=3, sticky="w")
-        adb_device_serial_entry.bind("<FocusOut>", self.on_adb_device_serial_change)
-
-        def comfort_confirm():
-            self.log("✅ 设备Serial已更新")
-
-        comfort_btn = ttk.Button(config_frame, text="确认", command=comfort_confirm, width=6)
-        comfort_btn.grid(row=2, column=2, padx=(0, 5), pady=3, sticky="w")
+        self.match_test_btn = ttk.Button(match_threshold_frame, text="开始测试", command=self._start_match_test)
+        self.match_test_btn.grid(row=1, column=0, padx=5, pady=(10, 3))
+        self.match_stop_btn = ttk.Button(match_threshold_frame, text="停止测试",
+                                         command=self._stop_match_test,
+                                         state=tk.DISABLED)
+        self.match_stop_btn.grid(row=1, column=1, padx=5, pady=(10, 3))
 
         ocr_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(ocr_frame, text="OCR")
 
-        ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding="10")
-        ocr_task_frame.pack(fill=tk.X, padx=10, pady=5)
+        ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding="5")
+        ocr_task_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(ocr_task_frame, text="选择任务组：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
         self.ocr_task_var = tk.StringVar()
@@ -573,15 +564,17 @@ class AutoClickGUI:
                 self.log(f"OCR任务组保存失败：{e}")
 
         self.ocr_task_var.trace_add("write", _on_ocr_task_change)
-        ttk.Button(ocr_task_frame, text="刷新", command=_refresh_ocr_tasks, width=5).grid(
+        ttk.Button(ocr_task_frame, text="刷新", command=_refresh_ocr_tasks).grid(
             row=0, column=2, padx=2, pady=3, sticky="w")
-        ttk.Button(ocr_task_frame, text="编辑", command=self._edit_ocr_task, width=5).grid(
+        ttk.Button(ocr_task_frame, text="新建", command=self._new_ocr_task).grid(
             row=0, column=3, padx=2, pady=3, sticky="w")
-        ttk.Button(ocr_task_frame, text="检测GPU", command=self._detect_gpu, width=7).grid(
+        ttk.Button(ocr_task_frame, text="编辑", command=self._edit_ocr_task).grid(
             row=0, column=4, padx=2, pady=3, sticky="w")
+        ttk.Button(ocr_task_frame, text="检测GPU", command=self._detect_gpu).grid(
+            row=0, column=5, padx=2, pady=3, sticky="w")
 
-        ocr_param_frame = ttk.LabelFrame(ocr_frame, text="识别参数", padding="10")
-        ocr_param_frame.pack(fill=tk.X, padx=10, pady=5)
+        ocr_param_frame = ttk.LabelFrame(ocr_frame, text="识别参数", padding="20")
+        ocr_param_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(ocr_param_frame, text="识别语言：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
         self.ocr_lang_var = tk.StringVar(value=self.ocr_lang)
@@ -652,7 +645,7 @@ class AutoClickGUI:
         self.ocr_device_var.trace_add("write", _on_ocr_device_change)
 
         ocr_pre_frame = ttk.LabelFrame(ocr_frame, text="图像预处理", padding="10")
-        ocr_pre_frame.pack(fill=tk.X, padx=10, pady=5)
+        ocr_pre_frame.pack(fill=tk.X, padx=10, pady=2)
 
         self.ocr_gray_var = tk.BooleanVar(value=self.ocr_gray)
         def _on_gray_change():
@@ -675,11 +668,11 @@ class AutoClickGUI:
                         ).grid(row=0, column=1, padx=5, pady=3, sticky="w")
 
         self.ocr_test_btn = ttk.Button(ocr_pre_frame, text="OCR 测试",
-                                       command=self._ocr_test, width=8)
+                                       command=self._ocr_test)
         self.ocr_test_btn.grid(row=0, column=2, padx=(20, 2), pady=3, sticky="w")
 
         self.ocr_stop_btn = ttk.Button(ocr_pre_frame, text="停止",
-                                       command=self._stop_ocr_test, width=5,
+                                       command=self._stop_ocr_test,
                                        state=tk.DISABLED)
         self.ocr_stop_btn.grid(row=0, column=3, padx=2, pady=3, sticky="w")
 
@@ -699,8 +692,8 @@ class AutoClickGUI:
 
         enabled_map = {"是": "1", "否": "0"}
         mode_map = {"内置": "1", "自定义": "2", "系统环境变量": "3", "Alas附带": "4"}
-        enabled_rev_map = {v: k for k, v in enabled_map.items()}
-        mode_rev_map = {v: k for k, v in mode_map.items()}
+        #enabled_rev_map = {v: k for k, v in enabled_map.items()}
+        #mode_rev_map = {v: k for k, v in mode_map.items()}
 
         style = ttk.Style()
         style.configure("Gray.TEntry", foreground="#888888")
@@ -734,6 +727,8 @@ class AutoClickGUI:
         )
         adb_mode_combobox.grid(row=0, column=3, padx=2, pady=3, sticky="w")
         adb_mode_combobox.bind("<FocusOut>", lambda e: adb_mode_combobox.selection_clear())
+        ttk.Button(adb_basic_frame, text="ADB截图工具", command=self._open_adb_screenshot).grid(
+            row=0, column=4, padx=15, pady=3, sticky="w")
 
         adb_path_frame = ttk.LabelFrame(adb_frame, text="自定义ADB路径", padding="5")
         adb_path_frame.pack(fill=tk.X, padx=10, pady=2)
@@ -753,7 +748,7 @@ class AutoClickGUI:
             )
             if adb_file:
                 adb_position_var.set(adb_file)
-        adb_browse_btn = ttk.Button(adb_path_frame, text="浏览", command=select_adb_path, width=6)
+        adb_browse_btn = ttk.Button(adb_path_frame, text="浏览", command=select_adb_path)
         adb_browse_btn.grid(row=0, column=2, padx=5, pady=3, sticky="w")
 
         def validate_adb_env():
@@ -775,7 +770,7 @@ class AutoClickGUI:
         )
         tip_label.grid(row=1, column=0, columnspan=4, padx=5, pady=2, sticky="w")
 
-        adb_cmd_frame = ttk.LabelFrame(adb_frame, text="ADB命令执行", padding="5")
+        adb_cmd_frame = ttk.LabelFrame(adb_frame, text="ADB命令执行", padding="8")
         adb_cmd_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(adb_cmd_frame, text="命令：").grid(
@@ -860,8 +855,8 @@ class AutoClickGUI:
         other_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(other_frame, text="其他")
 
-        theme_frame = ttk.LabelFrame(other_frame, text="主题配置", padding="10")
-        theme_frame.pack(fill=tk.X, padx=10, pady=5)
+        theme_frame = ttk.LabelFrame(other_frame, text="主题配置", padding="5")
+        theme_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(theme_frame, text="选择主题：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
         self.theme_var = tk.StringVar()
@@ -896,8 +891,8 @@ class AutoClickGUI:
         ttk.Button(theme_frame, text="应用主题", command=apply_selected_theme).grid(row=0, column=2, padx=5, pady=3, sticky="w")
         ttk.Label(theme_frame, text="（切换后自动保存，重启后生效）", foreground="#666666").grid(row=0, column=3, padx=5, pady=3, sticky="w")
 
-        empty_frame = ttk.LabelFrame(other_frame, text="Alas配置", padding="10")
-        empty_frame.pack(fill=tk.X, padx=10, pady=5)
+        empty_frame = ttk.LabelFrame(other_frame, text="Alas配置", padding="5")
+        empty_frame.pack(fill=tk.X, padx=10, pady=2)
 
         if "GENERAL" not in main_config:
             main_config["GENERAL"] = {}
@@ -916,8 +911,8 @@ class AutoClickGUI:
             )
             if alas_file:
                 where_alas_var.set(alas_file)
-        ttk.Button(empty_frame, text="浏览", command=select_alas_path, width=6).grid(row=0, column=2, padx=5, pady=3, sticky="w")
-        ttk.Button(empty_frame, text="同步配置", command=self._open_sync_file, width=8).grid(row=0, column=3, padx=5, pady=3, sticky="w")
+        ttk.Button(empty_frame, text="浏览", command=select_alas_path).grid(row=0, column=2, padx=5, pady=3, sticky="w")
+        ttk.Button(empty_frame, text="同步配置", command=self._open_sync_file).grid(row=0, column=3, padx=5, pady=3, sticky="w")
 
         def update_alas_config(*args):
             new_alas_path = where_alas_var.get()
@@ -936,15 +931,44 @@ class AutoClickGUI:
 
         where_alas_var.trace_add("write", update_alas_config)
 
-        placeholder_frame2 = ttk.LabelFrame(other_frame, text="预留区域", padding="10")
-        placeholder_frame2.pack(fill=tk.X, padx=10, pady=5)
+        main_config = configparser.ConfigParser()
+        main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
 
-        placeholder_label = ttk.Label(
-            placeholder_frame2,
-            text="前面的区域，以后再来探索吧！",
-            foreground="#666666"
+        config_frame = ttk.LabelFrame(other_frame, text="点击配置", padding="10")
+        config_frame.pack(fill=tk.X, padx=10, pady=2)
+
+        ttk.Label(config_frame, text="点击模式：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
+        self.click_mode_var = tk.StringVar()
+        self.click_mode_combobox = ttk.Combobox(
+            config_frame,
+            textvariable=self.click_mode_var,
+            values=["SendMessage消息点击", "PyAutoGUI硬件点击"],
+            state="readonly",
+            width=35
         )
-        placeholder_label.pack(padx=5, pady=5)
+        self.click_mode_combobox.grid(row=0, column=1, padx=5, pady=3, sticky=tk.W)
+        self.click_mode_combobox.bind("<<ComboboxSelected>>", self._on_click_mode_change)
+        self.click_mode_combobox.bind("<FocusOut>", lambda e: self.click_mode_combobox.selection_clear())
+
+        ttk.Label(config_frame, text="截图模式：").grid(row=1, column=0, padx=5, pady=2, sticky="w")
+        self.screenshot_mode_var = tk.StringVar(value=main_config["GENERAL"]["screenshot_mode"])
+        screenshot_mode_combo = ttk.Combobox(config_frame, textvariable=self.screenshot_mode_var,
+            values=["Win32GUI", "PrintWindow", "Win32Memory", "ADB"], state="readonly", width=35)
+        screenshot_mode_combo.grid(row=1, column=1, padx=5, pady=3, sticky="w")
+        screenshot_mode_combo.bind("<<ComboboxSelected>>", self.on_screenshot_mode_change)
+        screenshot_mode_combo.bind("<FocusOut>", lambda e: screenshot_mode_combo.selection_clear())
+
+        ttk.Label(config_frame, text="ADB设备Serial：").grid(row=2, column=0, padx=5, pady=3, sticky="w")
+        self.adb_device_serial_var = tk.StringVar(value=main_config["ADBConfig"]["adb_device_serial"])
+        adb_device_serial_entry = ttk.Entry(config_frame, textvariable=self.adb_device_serial_var, width=38)
+        adb_device_serial_entry.grid(row=2, column=1, padx=5, pady=3, sticky="w")
+        adb_device_serial_entry.bind("<FocusOut>", self.on_adb_device_serial_change)
+
+        def comfort_confirm():
+            self.log("✅ 设备Serial已更新")
+
+        comfort_btn = ttk.Button(config_frame, text="确认", command=comfort_confirm)
+        comfort_btn.grid(row=2, column=2, padx=(0, 5), pady=3, sticky="w")
 
         control_frame = ttk.Frame(self.root)
         control_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -1375,6 +1399,82 @@ class AutoClickGUI:
             return
         self._open_file(os.path.join(self.ocr_task_dir, f"{task_name}.json"))
 
+    def _new_ocr_task(self):
+        new_win = tk.Toplevel(self.root)
+        new_win.title("新建OCR任务组")
+
+        new_win.geometry("350x180")
+        new_win.minsize(300, 150)
+        new_win.resizable(True, True)
+
+        new_win.update_idletasks()
+        screen_width = new_win.winfo_screenwidth()
+        screen_height = new_win.winfo_screenheight()
+        x = (screen_width - 350) // 2
+        y = (screen_height - 180) // 2
+        new_win.geometry(f"350x180+{x}+{y}")
+
+        new_win.columnconfigure(0, weight=1)
+
+        ttk.Label(new_win, text="请输入OCR任务组名称：", font=("Arial", 10)).grid(
+            row=0, column=0,
+            padx=20, pady=20,
+            sticky="ew"
+        )
+        name_var = tk.StringVar()
+        name_entry = ttk.Entry(new_win, textvariable=name_var, width=25, font=("Arial", 10))
+        name_entry.grid(row=1, column=0,
+                        padx=20, pady=5,
+                        sticky="ew")
+        name_entry.focus()
+
+        def save_ocr_group():
+            import json
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showwarning("提示", "OCR任务组名称不能为空！")
+                return
+
+            config_path = os.path.join(self.ocr_task_dir, f"{name}.json")
+            if os.path.exists(config_path):
+                messagebox.showerror("错误", "OCR任务组已存在！")
+                return
+
+            default_task = {
+                "_schema": "ocr_task_v1",
+                "_description": "OCR文字识别任务组 - {}".format(name),
+                "ocr_settings": {
+                    "language": ["ch_sim", "en"],
+                    "confidence_threshold": 0.7,
+                    "preprocess": {
+                        "grayscale": False,
+                        "threshold_enabled": False,
+                        "threshold_value": 127,
+                        "scale": 1.0
+                    }
+                },
+                "TASK1": {
+                    "desc": "",
+                    "targets": []
+                }
+            }
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(default_task, f, ensure_ascii=False, indent=2)
+
+            tasks = self.ocr_engine.list_ocr_tasks(self.ocr_task_dir)
+            self.ocr_task_combo["values"] = tasks
+            self.ocr_task_var.set(name)
+            self.log(f"✅ 新建OCR任务组：{name}")
+
+            new_win.destroy()
+
+        save_btn = ttk.Button(new_win, text="保存", command=save_ocr_group)
+        save_btn.grid(row=2, column=0,
+                    padx=20, pady=15,
+                    sticky="ew")
+
+        new_win.grab_set()
+
     def _refresh_ocr_device_list(self, force_refresh=False):
         """检测 GPU 并更新加速设备下拉框
 
@@ -1489,6 +1589,68 @@ class AutoClickGUI:
             self.log("  未识别到任何文字")
 
         self.log(f"✅ OCR 测试结束  |  耗时: {result['duration_ms']} ms")
+
+    def _start_match_test(self):
+        """启动模板匹配基准测试"""
+        target_win = get_target_window_from_config()
+        if not target_win:
+            messagebox.showwarning("提示", "请先在主界面选择一个有效的目标窗口")
+            return
+
+        hwnd = target_win._hWnd
+        config = configparser.ConfigParser()
+        config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+        screenshot_mode = config["GENERAL"]["screenshot_mode"]
+        adb_device_serial = config["ADBConfig"]["adb_device_serial"]
+
+        try:
+            match_step = float(self.match_step_var.get().strip())
+            match_step = max(0.001, min(0.5, match_step))
+        except ValueError:
+            match_step = 0.05
+
+        self.match_test_btn.config(state=tk.DISABLED)
+        self.match_stop_btn.config(state=tk.NORMAL)
+
+        self._img_match_test_instance = ImgMatchTest(
+            hwnd=hwnd,
+            screenshot_mode=screenshot_mode,
+            adb_device_serial=adb_device_serial,
+            match_step=match_step,
+            threshold=self.match_threshold_var.get(),
+            on_progress=lambda msg: self.root.after(0, lambda m=msg: self.log(m)),
+            on_complete=lambda result: self.root.after(
+                0, lambda r=result: self._on_match_test_complete(r)
+            ),
+        )
+        self._img_match_test_instance.start()
+
+    def _stop_match_test(self):
+        """停止模板匹配基准测试"""
+        if self._img_match_test_instance is not None:
+            self._img_match_test_instance.cancel()
+            self.log("⏹ 模板匹配测试停止请求已发出...")
+
+    def _on_match_test_complete(self, result):
+        """模板匹配测试完成回调（主线程）"""
+        self.match_test_btn.config(state=tk.NORMAL)
+        self.match_stop_btn.config(state=tk.DISABLED)
+        self._img_match_test_instance = None
+
+        if result["status"] == "cancelled":
+            self.log("模板匹配测试已取消")
+            return
+
+        if result["status"] == "error":
+            self.log("模板匹配测试出错")
+            return
+
+        self.log(f"  参考图: {result['ref_path']}")
+        self.log(f"  截图尺寸: {result['screenshot_size']}")
+        self.log(f"  匹配耗时: {result['match_elapsed_ms']} ms")
+        self.log(f"  总耗时: {result['duration_ms']} ms")
+        self.log(f"  相似度: {result['similarity']:.4f}")
+        self.log(f"  匹配结果: {'✅ 匹配成功' if result['is_match'] else '❌ 匹配失败'}")
 
     def _log_threadsafe(self, msg):
         """线程安全的日志输出"""

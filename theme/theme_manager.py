@@ -507,6 +507,11 @@ class CustomNotebook(tk.Frame):
 
         self._tabs.append((tab_btn, content_frame))
 
+        max_text_len = max(len(str(btn.cget("text"))) for btn, _ in self._tabs)
+        tab_width = max_text_len + 6
+        for btn, _ in self._tabs:
+            btn.config(width=tab_width)
+
         if self._selected < 0:
             self.select(0)
         else:

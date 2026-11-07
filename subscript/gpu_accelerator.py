@@ -37,7 +37,6 @@ except ImportError:
 _ONNX_PROVIDERS = []
 
 
-
 def _try_import_onnx():
     """检测 ONNX Runtime 及可用的执行提供器"""
     global _ONNX_PROVIDERS
