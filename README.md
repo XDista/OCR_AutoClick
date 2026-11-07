@@ -119,9 +119,9 @@ OCR_AutoClick/
 
 ### Q：你的源代码怎么这么奇怪？
 
-### A：因为我根本没学过 Python，所有代码都是 AI 写的，我只负责许愿和微调参数。
+### A：因为这个项目本质是vibe coding的结果。
 
-说实话这份源码被豆包、DeepSeek、GitHub Copilot 三个 AI 转手了十多遍还能正常工作已经谢天谢地了 😋
+说实话这份源码被豆包、DeepSeek、GitHub Copilot 等 几个 AI 模型转手了十多遍还能正常工作已经谢天谢地了 😋
 
 <br>
 
