@@ -21,7 +21,6 @@ def init_main_config():
     default_general_config = {
         "recognition_frequency": "1.0",
         "next_start_time": "00:00:00",
-        "current_task_group": "default",
         "target_program_name": "",
         "target_window_title": "",
         "target_window_hwnd": "",
@@ -30,8 +29,13 @@ def init_main_config():
         "schedule_mode": "once",
         "click_mode": "sendmessage",
         "screenshot_mode": "win32gui",
-        "template_match_step": "0.05",
         "task_mode": "template",
+    }
+
+    default_template_match_config = {
+        "current_task_group": "default",
+        "template_match_step": "0.05",
+        "match_threshold": "0.9",
     }
 
     default_adb_config = {
@@ -71,6 +75,12 @@ def init_main_config():
     for key, value in default_theme_config.items():
         if key not in config["Theme"]:
             config["Theme"][key] = value
+
+    if "TemplateMatchConfig" not in config:
+        config["TemplateMatchConfig"] = {}
+    for key, value in default_template_match_config.items():
+        if key not in config["TemplateMatchConfig"]:
+            config["TemplateMatchConfig"][key] = value
 
     default_ocr_config = {
         "ocr_language": "ch_sim, en",

@@ -54,7 +54,7 @@ def worker(app):
 
             freq = float(main_config["GENERAL"]["recognition_frequency"])
             start_time_str = main_config["GENERAL"]["next_start_time"]
-            task_group = main_config["GENERAL"]["current_task_group"]
+            task_group = main_config["TemplateMatchConfig"]["current_task_group"]
             max_consecutive_errors = int(main_config["GENERAL"]["max_execution_errors"])
             enable_schedule = main_config["GENERAL"].getboolean("enable_schedule")
             schedule_mode = main_config["GENERAL"]["schedule_mode"]

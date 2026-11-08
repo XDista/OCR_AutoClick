@@ -212,7 +212,7 @@ class AutoClickGUI:
 
             main_config = configparser.ConfigParser()
             main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-            main_config["GENERAL"]["current_task_group"] = selected_task_group
+            main_config["TemplateMatchConfig"]["current_task_group"] = selected_task_group
 
             with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
                 main_config.write(f)
@@ -1348,7 +1348,7 @@ class AutoClickGUI:
         self.task_combobox["values"] = tasks
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        current = main_config["GENERAL"]["current_task_group"]
+        current = main_config["TemplateMatchConfig"]["current_task_group"]
         self.task_var.set(current if current in tasks else tasks[0])
 
     def _new_task_group(self):
@@ -1709,7 +1709,7 @@ class AutoClickGUI:
 
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        main_config["GENERAL"]["current_task_group"] = self.task_var.get()
+        main_config["TemplateMatchConfig"]["current_task_group"] = self.task_var.get()
         with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
             main_config.write(f)
 
