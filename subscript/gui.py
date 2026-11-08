@@ -351,7 +351,7 @@ class AutoClickGUI:
         info_frame.pack(fill=tk.X, padx=10, pady=2)
 
         self.window_info_var = tk.StringVar(value="未选择窗口 | 标题：- | 进程：- | 句柄：-")
-        ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=3)
+        ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=2)
 
         schedule_frame = ttk.LabelFrame(window_frame, text="定时运行配置", padding="5")
         schedule_frame.pack(fill=tk.X, padx=10, pady=2)
@@ -480,7 +480,7 @@ class AutoClickGUI:
             foreground="#666666"
         ).grid(row=0, column=3, padx=5, pady=3, sticky=tk.W)
 
-        match_threshold_frame = ttk.LabelFrame(task_frame, text="相似度阈值", padding="11")
+        match_threshold_frame = ttk.LabelFrame(task_frame, text="相似度阈值", padding="10")
         match_threshold_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(match_threshold_frame, text="匹配相似度：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
@@ -503,11 +503,11 @@ class AutoClickGUI:
         match_threshold_scale.config(command=_on_match_threshold_drag)
 
         self.match_test_btn = ttk.Button(match_threshold_frame, text="开始测试", command=self._start_match_test)
-        self.match_test_btn.grid(row=1, column=0, padx=5, pady=(10, 3))
+        self.match_test_btn.grid(row=1, column=0, padx=5, pady=(9, 3))
         self.match_stop_btn = ttk.Button(match_threshold_frame, text="停止测试",
                                          command=self._stop_match_test,
                                          state=tk.DISABLED)
-        self.match_stop_btn.grid(row=1, column=1, padx=5, pady=(10, 3))
+        self.match_stop_btn.grid(row=1, column=1, padx=5, pady=(9, 3))
 
         ocr_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(ocr_frame, text="OCR")
