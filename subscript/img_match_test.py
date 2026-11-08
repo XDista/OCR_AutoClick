@@ -28,6 +28,7 @@ completion 回调收到 dict:
     }
 """
 
+import gc
 import os
 import threading
 import time
@@ -231,9 +232,6 @@ class ImgMatchTest:
                 f"  |  总耗时: {total_elapsed_ms} ms"
             )
 
-            del screenshot
-            del screenshot_gray
-
             result = {
                 "duration_ms": total_elapsed_ms,
                 "match_elapsed_ms": match_elapsed_ms,
@@ -251,3 +249,13 @@ class ImgMatchTest:
             import traceback
             self._emit_progress(f"  ❌ 异常:\n{traceback.format_exc()}")
             self._finish(self.STATUS_ERROR, None)
+        finally:
+            try:
+                del screenshot
+            except Exception:
+                pass
+            try:
+                del screenshot_gray
+            except Exception:
+                pass
+            gc.collect()

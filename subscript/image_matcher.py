@@ -44,10 +44,13 @@ def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.
         return False, 0.0
 
     if screenshot_gray is None or screenshot_gray.size == 0:
+        del ref_img
         return False, 0.0
     ref_h, ref_w = ref_img.shape[:2]
     max_similarity = 0.0
 
+    result = None
+    scaled_ref = None
     scales = np.arange(0.1, 4.1, match_step)
     for scale in scales:
         scaled_w = int(ref_w * scale)
@@ -63,10 +66,16 @@ def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.
         else:
             scaled_ref = cv2.resize(ref_img, (scaled_w, scaled_h), interpolation=cv2.INTER_CUBIC)
 
-        result = cv2.matchTemplate(screenshot_gray, scaled_ref, cv2.TM_CCOEFF_NORMED)
-        _, current_sim, _, _ = cv2.minMaxLoc(result)
-        del result
-        del scaled_ref
+        try:
+            result = cv2.matchTemplate(screenshot_gray, scaled_ref, cv2.TM_CCOEFF_NORMED)
+            _, current_sim, _, _ = cv2.minMaxLoc(result)
+        finally:
+            if result is not None:
+                del result
+                result = None
+            if scaled_ref is not None:
+                del scaled_ref
+                scaled_ref = None
 
         if current_sim > max_similarity:
             max_similarity = current_sim
@@ -75,5 +84,6 @@ def template_match(screenshot_gray, ref_image_path, threshold=0.9, match_step=0.
             break
 
     is_match = max_similarity >= threshold
+    del scales
     del ref_img
     return is_match, max_similarity

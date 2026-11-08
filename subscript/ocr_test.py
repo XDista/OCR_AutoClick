@@ -26,20 +26,24 @@ completion 回调收到 dict:
     }
 """
 
-import os
-import subprocess
+import gc
 import threading
 import time
-import ctypes
-from ctypes import wintypes
-import cv2
-import numpy as np
+from gpu_accelerator import GPUAccelerator
+from screenshot_capture import (
+    capture_window_win32gui,
+    capture_window_memory,
+    capture_window_printwindow,
+    capture_adb_screenshot,
+)
 
 
 class OCRTest:
     """独立的 OCR 测试工具
 
-    - 不依赖任何配置文件（config.ini / task_ocr / MAIN_CONFIG_PATH 等）
+    - 不依赖 task_ocr / task_worker 等任务配置文件
+    - 截图复用 screenshot_capture（ADB 模式会读取 config.ini）
+    - 预处理通过 GPUAccelerator 获得 OpenCL 加速
     - 线程安全：通过 threading.Lock 保护状态，threading.Event 取消
     - 回调 on_progress / on_complete 在后台线程调用，GUI 使用者需自行 root.after
     """
@@ -243,297 +247,49 @@ class OCRTest:
             import traceback
             self._emit_progress(f"  ❌ 异常:\n{traceback.format_exc()}")
             self._finish(self.STATUS_ERROR, None)
+        finally:
+            try:
+                del screenshot
+            except Exception:
+                pass
+            try:
+                del processed
+            except Exception:
+                pass
+            gc.collect()
 
 
 # ==================== 图像预处理 ====================
 
 def _preprocess(img_bgr, *, grayscale, threshold_enabled, threshold_value):
-    img = img_bgr
-    if grayscale:
-        if len(img.shape) == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    else:
-        if len(img.shape) == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    if threshold_enabled:
-        if len(img.shape) == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, img = cv2.threshold(img, threshold_value, 255, cv2.THRESH_BINARY)
-
-    return img
+    """图像预处理（使用 GPUAccelerator 获得 OpenCL 加速）"""
+    gpu = GPUAccelerator()
+    gpu.detect()
+    return gpu.preprocess_image(
+        img_bgr,
+        grayscale=grayscale or threshold_enabled,
+        threshold_enabled=threshold_enabled,
+        threshold_value=threshold_value,
+    )
 
 
-# ==================== 截图（自包含，不依赖 app / config） ====================
+# ==================== 截图（复用 screenshot_capture） ====================
 
-# PrintWindow 模块级初始化，避免每次截图重复加载DLL
-_user32 = ctypes.WinDLL("user32.dll")
-_user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
-_user32.PrintWindow.restype = wintypes.BOOL
-_user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-_user32.SendMessageW.restype = wintypes.LONG
-
-_PW_CLIENTONLY = 0x00000001
-_PW_RENDERFULLCONTENT = 0x00000002
-_WM_PAINT = 0x000F
-_WM_PRINT = 0x0317
-_PRF_CLIENT = 0x00000004
-_PW_FLAGS = _PW_CLIENTONLY | _PW_RENDERFULLCONTENT
-
-_CAPTURE_REGISTRY = {}
-
-
-def _register(name):
-    def dec(fn):
-        _CAPTURE_REGISTRY[name] = fn
-        return fn
-    return dec
+_CAPTURE_DISPATCH = {
+    "Win32GUI": capture_window_win32gui,
+    "Win32Memory": capture_window_memory,
+    "PrintWindow": capture_window_printwindow,
+    "ADB": capture_adb_screenshot,
+}
 
 
 def _capture(hwnd, mode, adb_device_serial=""):
-    fn = _CAPTURE_REGISTRY.get(mode)
+    import win32gui
+    fn = _CAPTURE_DISPATCH.get(mode)
     if fn is None:
-        raise ValueError(f"未知的截图模式: {mode}（支持: {', '.join(_CAPTURE_REGISTRY)}）")
+        raise ValueError(f"未知的截图模式: {mode}（支持: {', '.join(_CAPTURE_DISPATCH)}）")
+    if not win32gui.IsWindow(hwnd) and mode != "ADB":
+        return None
     if mode == "ADB":
-        return fn(adb_device_serial)
+        return fn(device_serial=adb_device_serial)
     return fn(hwnd)
-
-
-@_register("Win32GUI")
-def _capture_win32gui(hwnd):
-    """pyautogui 屏幕坐标截图（需要窗口可见且不被遮挡）"""
-    import pyautogui
-    import win32gui
-    from window_utils import get_window_client_rect, is_window_visible
-
-    try:
-        if not win32gui.IsWindow(hwnd) or not is_window_visible(hwnd):
-            return None
-
-        left, top, width, height = get_window_client_rect(hwnd)
-        if width <= 0 or height <= 0:
-            return None
-
-        pil_img = pyautogui.screenshot(region=(left, top, width, height))
-        return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    except Exception:
-        return None
-
-
-@_register("Win32Memory")
-def _capture_memory(hwnd):
-    """从窗口 DC 读取像素（不依赖窗口位置，但对部分应用无效）"""
-    import win32gui
-    import win32ui
-    import win32con
-    from window_utils import get_window_client_rect
-
-    hdc_win = None
-    hdc_mem = None
-    mem_dc = None
-    bmp = None
-    old_bmp = None
-
-    try:
-        if not win32gui.IsWindow(hwnd):
-            return None
-
-        wr = win32gui.GetWindowRect(hwnd)
-        left, top, width, height = get_window_client_rect(hwnd)
-        if width <= 0 or height <= 0:
-            return None
-
-        ox = left - wr[0]
-        oy = top - wr[1]
-        if ox < 0 or oy < 0:
-            return None
-
-        hdc_win = win32gui.GetDC(hwnd)
-        hdc_mem = win32ui.CreateDCFromHandle(hdc_win)
-        mem_dc = hdc_mem.CreateCompatibleDC()
-
-        bmp = win32ui.CreateBitmap()
-        bmp.CreateCompatibleBitmap(hdc_mem, width, height)
-        old_bmp = mem_dc.SelectObject(bmp)
-
-        mem_dc.BitBlt(
-            (0, 0), (width, height),
-            hdc_mem, (ox, oy), win32con.SRCCOPY,
-        )
-
-        data = bmp.GetBitmapBits(True)
-        img = np.frombuffer(data, dtype="uint8")
-        img.shape = (height, width, 4)
-
-        return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-    except Exception:
-        return None
-    finally:
-        try:
-            if bmp is not None and mem_dc is not None and old_bmp is not None:
-                mem_dc.SelectObject(old_bmp)
-        except Exception:
-            pass
-        try:
-            if bmp is not None:
-                win32gui.DeleteObject(bmp.GetHandle())
-        except Exception:
-            pass
-        try:
-            if mem_dc is not None:
-                mem_dc.DeleteDC()
-        except Exception:
-            pass
-        try:
-            if hdc_mem is not None:
-                hdc_mem.DeleteDC()
-        except Exception:
-            pass
-        try:
-            if hdc_win is not None and hwnd:
-                win32gui.ReleaseDC(hwnd, hdc_win)
-        except Exception:
-            pass
-
-
-@_register("PrintWindow")
-def _capture_printwindow(hwnd):
-    """PrintWindow API 截图（支持被遮挡窗口和硬件加速应用）"""
-    import win32gui
-    import win32ui
-    from window_utils import get_window_client_rect
-
-    hdc_win = None
-    hdc_mem = None
-    mem_dc = None
-    bmp = None
-    old_bmp = None
-
-    try:
-        if not win32gui.IsWindow(hwnd):
-            return None
-
-        left, top, width, height = get_window_client_rect(hwnd)
-        if width <= 0 or height <= 0:
-            return None
-
-        hdc_win = win32gui.GetDC(hwnd)
-        hdc_mem = win32ui.CreateDCFromHandle(hdc_win)
-        mem_dc = hdc_mem.CreateCompatibleDC()
-
-        bmp = win32ui.CreateBitmap()
-        bmp.CreateCompatibleBitmap(hdc_mem, width, height)
-        old_bmp = mem_dc.SelectObject(bmp)
-
-        _user32.SendMessageW(hwnd, _WM_PAINT, 0, 0)
-        _user32.SendMessageW(hwnd, _WM_PRINT, mem_dc.GetSafeHdc(), _PRF_CLIENT)
-
-        _ = _user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), _PW_FLAGS)
-
-        data = bmp.GetBitmapBits(True)
-        img = np.frombuffer(data, dtype="uint8")
-        img.shape = (height, width, 4)
-
-        return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-    except Exception:
-        return None
-    finally:
-        try:
-            if bmp is not None and mem_dc is not None and old_bmp is not None:
-                mem_dc.SelectObject(old_bmp)
-        except Exception:
-            pass
-        try:
-            if bmp is not None:
-                win32gui.DeleteObject(bmp.GetHandle())
-        except Exception:
-            pass
-        try:
-            if mem_dc is not None:
-                mem_dc.DeleteDC()
-        except Exception:
-            pass
-        try:
-            if hdc_mem is not None:
-                hdc_mem.DeleteDC()
-        except Exception:
-            pass
-        try:
-            if hdc_win is not None and hwnd:
-                win32gui.ReleaseDC(hwnd, hdc_win)
-        except Exception:
-            pass
-
-
-@_register("ADB")
-def _capture_adb(device_serial=""):
-    import configparser
-    from project_paths import BASE_DIR
-
-    config = configparser.ConfigParser()
-    config.read(os.path.join(BASE_DIR, "config.ini"), encoding="utf-8")
-
-    if "ADBConfig" not in config:
-        return None
-
-    adb_enabled = config["ADBConfig"].get("adb_enabled", "1")
-    if adb_enabled != "1":
-        return None
-
-    adb_usage_mode = config["ADBConfig"].get("adb_usage_mode", "1")
-    adb_position = config["ADBConfig"].get("adb_position", "").strip()
-    adb_path = None
-
-    if adb_usage_mode == "1":
-        candidate = os.path.join(BASE_DIR, "adb", "platform-tools", "adb.exe")
-        if os.path.exists(candidate):
-            adb_path = candidate
-    elif adb_usage_mode == "2":
-        if adb_position and os.path.exists(adb_position) and adb_position.endswith("adb.exe"):
-            adb_path = adb_position
-    elif adb_usage_mode == "3":
-        adb_path = "adb"
-    elif adb_usage_mode == "4":
-        where_alas = config["GENERAL"].get("where_alas", "").strip()
-        if where_alas and os.path.exists(where_alas):
-            alas_dir = os.path.dirname(where_alas)
-            candidate = os.path.join(alas_dir, "toolkit", "Lib", "site-packages", "adbutils", "binaries", "adb.exe")
-            if os.path.exists(candidate):
-                adb_path = candidate
-
-    if adb_path is None:
-        return None
-
-    adb_cmd_prefix = f'"{adb_path}"'
-    if device_serial and device_serial.strip():
-        adb_cmd_prefix += f' -s {device_serial.strip()}'
-
-    temp_png = os.path.join(BASE_DIR, "adb_screenshot_temp.png")
-    if os.path.exists(temp_png):
-        try:
-            os.remove(temp_png)
-        except OSError:
-            pass
-
-    adb_screenshot_cmd = f'{adb_cmd_prefix} exec-out screencap -p > "{temp_png}"'
-    try:
-        subprocess.run(
-            adb_screenshot_cmd, shell=True, check=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", timeout=10,
-        )
-        if not os.path.exists(temp_png) or os.path.getsize(temp_png) == 0:
-            return None
-
-        from PIL import Image
-        screenshot_pil = Image.open(temp_png).convert('RGB')
-        img = cv2.cvtColor(np.array(screenshot_pil), cv2.COLOR_RGB2BGR)
-        screenshot_pil.close()
-        return img
-    except Exception:
-        return None
-    finally:
-        if os.path.exists(temp_png):
-            try:
-                os.remove(temp_png)
-            except OSError:
-                pass

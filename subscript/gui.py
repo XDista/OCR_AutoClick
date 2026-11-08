@@ -55,6 +55,7 @@ class AutoClickGUI:
         self.ocr_gray = config["OCRConfig"].get("ocr_grayscale", "True") == "True"
         self.ocr_thresh = config["OCRConfig"].get("ocr_threshold", "False") == "True"
         self.task_mode = config["GENERAL"].get("task_mode", "template")
+        self.match_threshold = float(config["TemplateMatchConfig"].get("match_threshold", "0.9"))
 
         saved_theme = load_theme_config(MAIN_CONFIG_PATH)
         if saved_theme and saved_theme in ("light", "dark"):
@@ -484,7 +485,7 @@ class AutoClickGUI:
         match_threshold_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(match_threshold_frame, text="匹配相似度：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
-        self.match_threshold_var = tk.DoubleVar(value=0.9)
+        self.match_threshold_var = tk.DoubleVar(value=self.match_threshold)
         match_threshold_scale = ttk.Scale(
             match_threshold_frame,
             from_=0.5, to=1.0,
@@ -493,14 +494,20 @@ class AutoClickGUI:
             length=150
         )
         match_threshold_scale.grid(row=0, column=1, padx=2, pady=3, sticky="w")
-        self.match_threshold_label = ttk.Label(match_threshold_frame, text="0.90", width=4)
+        self.match_threshold_label = ttk.Label(match_threshold_frame, text=f"{self.match_threshold:.2f}", width=4)
         self.match_threshold_label.grid(row=0, column=2, padx=2, pady=3, sticky="w")
 
         def _on_match_threshold_drag(value):
             val = round(float(value), 2)
             self.match_threshold_label.config(text=f"{val:.2f}")
 
+        def _on_match_threshold_release(event):
+            val = round(self.match_threshold_var.get(), 2)
+            self._save_template_match_config_key("match_threshold", str(val))
+            self.log(f"✅ 模板匹配相似度阈值已更新为：{val:.2f}")
+
         match_threshold_scale.config(command=_on_match_threshold_drag)
+        match_threshold_scale.bind("<ButtonRelease-1>", _on_match_threshold_release)
 
         self.match_test_btn = ttk.Button(match_threshold_frame, text="开始测试", command=self._start_match_test)
         self.match_test_btn.grid(row=1, column=0, padx=5, pady=(9, 3))
@@ -1098,10 +1105,10 @@ class AutoClickGUI:
         config = configparser.ConfigParser()
         if os.path.exists(MAIN_CONFIG_PATH):
             config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-        if "GENERAL" not in config:
-            config["GENERAL"] = {}
+        if "TemplateMatchConfig" not in config:
+            config["TemplateMatchConfig"] = {}
         try:
-            step = float(config["GENERAL"].get("template_match_step", "0.01"))
+            step = float(config["TemplateMatchConfig"].get("template_match_step", "0.01"))
             step = max(0.001, min(0.2, step))
             self.match_step_var.set(f"{step:.3f}")
         except (ValueError, TypeError):
@@ -1118,9 +1125,9 @@ class AutoClickGUI:
             config = configparser.ConfigParser()
             if os.path.exists(MAIN_CONFIG_PATH):
                 config.read(MAIN_CONFIG_PATH, encoding="utf-8")
-            if "GENERAL" not in config:
-                config["GENERAL"] = {}
-            config["GENERAL"]["template_match_step"] = f"{step_val:.3f}"
+            if "TemplateMatchConfig" not in config:
+                config["TemplateMatchConfig"] = {}
+            config["TemplateMatchConfig"]["template_match_step"] = f"{step_val:.3f}"
             with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
                 config.write(f)
             self.log(f"✅ 匹配步长已保存为：{step_val:.3f}")
@@ -1140,6 +1147,19 @@ class AutoClickGUI:
                 config.write(f)
         except Exception as e:
             self.log(f"⚠️ 保存 OCR 配置失败：{e}")
+
+    def _save_template_match_config_key(self, key, value):
+        try:
+            config = configparser.ConfigParser()
+            if os.path.exists(MAIN_CONFIG_PATH):
+                config.read(MAIN_CONFIG_PATH, encoding="utf-8")
+            if "TemplateMatchConfig" not in config:
+                config["TemplateMatchConfig"] = {}
+            config["TemplateMatchConfig"][key] = value
+            with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:
+                config.write(f)
+        except Exception as e:
+            self.log(f"⚠️ 保存模板匹配配置失败：{e}")
 
     def _save_task_mode_to_config(self, mode):
         try:

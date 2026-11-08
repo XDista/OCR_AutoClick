@@ -66,10 +66,16 @@ def worker(app):
             adb_device_serial = main_config["ADBConfig"]["adb_device_serial"]
 
             try:
-                match_step = float(main_config["GENERAL"].get("template_match_step", "0.05"))
+                match_step = float(main_config["TemplateMatchConfig"].get("template_match_step", "0.05"))
                 match_step = max(0.001, min(0.5, match_step))
             except ValueError:
                 match_step = 0.05
+
+            try:
+                match_threshold = float(main_config["TemplateMatchConfig"].get("match_threshold", "0.9"))
+                match_threshold = max(0.0, min(1.0, match_threshold))
+            except ValueError:
+                match_threshold = 0.9
 
             click_mode = main_config["GENERAL"]["click_mode"]
 
@@ -194,7 +200,7 @@ def worker(app):
                                     app.log(f"✅ 任务[{task_name}]：配置了忽略遮挡，直接执行第一个分支")
                                 else:
                                     for branch_idx, ref_branch in enumerate(ref_images_list):
-                                        threshold = ref_branch.get("similarity_threshold", 0.9)
+                                        threshold = ref_branch.get("similarity_threshold", match_threshold)
                                         match_times = ref_branch.get("match_times", 1)
                                         match_times = match_times if match_times >= 1 else 1
                                         run_on_match = ref_branch.get("run_on_match", True)
@@ -418,6 +424,17 @@ def worker(app):
                 del screenshot_gray
             except Exception:
                 pass
+            gc.collect()
+
+
+def _bbox_in_region(bbox, rx, ry, rw, rh):
+    """判断 OCR 识别框是否落在指定区域内（至少 50% 重叠）"""
+    bx, by, bw, bh = bbox
+    overlap_x = max(0, min(bx + bw, rx + rw) - max(bx, rx))
+    overlap_y = max(0, min(by + bh, ry + rh) - max(by, ry))
+    overlap_area = overlap_x * overlap_y
+    bbox_area = bw * bh
+    return bbox_area > 0 and overlap_area >= bbox_area * 0.5
 
 
 def worker_ocr(app):
@@ -594,6 +611,10 @@ def worker_ocr(app):
                                 matched_target = None
                                 matched_target_idx = -1
 
+                                # —— 预处理 + OCR 只做一次（所有 target 共享）——
+                                processed_full = ocr_engine._preprocess_image(screenshot)
+                                ocr_full_results = ocr_engine.recognize_preprocessed(processed_full)
+
                                 for target_idx, target in enumerate(targets):
                                     target_text_config = target.get("text", "")
                                     if not target_text_config:
@@ -604,14 +625,21 @@ def worker_ocr(app):
                                     match_times = target.get("match_times", 1)
                                     match_times = match_times if match_times >= 1 else 1
                                     reverse_match = target.get("reverse_match", False)
-                                    region = target.get("region", None)
 
                                     target_key = f"ocr_{task_name}_target{target_idx}"
                                     if target_key not in task_continuous_match:
                                         task_continuous_match[target_key] = 0
 
-                                    cropped = ocr_engine._crop_region(screenshot, region)
-                                    ocr_texts = ocr_engine.recognize_text_only(cropped)
+                                    # 从共享的 OCR 结果中按 region 过滤文字
+                                    region = target.get("region", None)
+                                    if region is not None:
+                                        rx, ry, rw, rh = region
+                                        ocr_texts = [
+                                            r["text"] for r in ocr_full_results
+                                            if _bbox_in_region(r["bbox"], rx, ry, rw, rh)
+                                        ]
+                                    else:
+                                        ocr_texts = [r["text"] for r in ocr_full_results]
 
                                     # ---- 支持单文本 / AND逻辑 / OR逻辑 ----
                                     is_match = False

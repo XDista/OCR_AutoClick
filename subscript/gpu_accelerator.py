@@ -446,14 +446,11 @@ class GPUAccelerator:
 
         内部自动选择：
           - GPU 可用 → OpenCV OpenCL 路径
-          - GPU 不可用 → CPU 路径（无额外开销，只是少了一个 setUseOpenCL(True)）
+          - GPU 不可用 → CPU 路径（无额外开销）
 
         参数与 OCREngine._preprocess_image 保持一致。
         """
         img = img_bgr
-
-        if not self._opencv_ocl_ready:
-            self.enable_opencv_accel()
 
         if grayscale:
             if len(img.shape) == 3:

@@ -58,7 +58,7 @@ def _release_onnx_gpu_memory():
 
 
 def _get_reader(device="cpu"):
-    """获取或创建 RapidOCR Reader 实例（线程安全）
+    """获取或创建 RapidOCR Reader 实例（线程安全，高频调用优化）
 
     RapidOCR 原生支持 ONNX Runtime 的 DirectML / CUDA / CPU 后端。
     通过参数 det_use_dml / cls_use_dml / rec_use_dml 启用 DirectML，
@@ -71,6 +71,11 @@ def _get_reader(device="cpu"):
     :return: RapidOCR 实例
     """
     global _ocr_reader, _ocr_reader_device, _ocr_reader_providers
+
+    # 快速路径：无锁检查（覆盖 99% 的调用）
+    reader = _ocr_reader
+    if reader is not None and _ocr_reader_device == device:
+        return reader
 
     with _reader_lock:
         if _ocr_reader is not None and _ocr_reader_device == device:
@@ -350,16 +355,27 @@ class OCREngine:
     def recognize(self, screenshot_bgr):
         """对截图执行 OCR，返回所有识别到的文字信息
 
-        :param screenshot_bgr: BGR 格式 numpy 数组
+        :param screenshot_bgr: BGR 格式 numpy 数组（或已预处理图像，见 recognize_preprocessed）
         :return: list[dict]，每个 dict 包含:
             - "text": 识别文字
             - "confidence": 置信度 (0~100 整数)
             - "bbox": [x, y, w, h] 文字区域
         """
         processed = self._preprocess_image(screenshot_bgr)
+        return self.recognize_preprocessed(processed)
+
+    def recognize_preprocessed(self, processed):
+        """对已预处理的图像执行 OCR（跳过重复预处理，供多 target 共享推理结果）
+
+        :param processed: 已经过 _preprocess_image 处理的 numpy 数组
+        :return: list[dict]，与 recognize() 相同的输出格式
+        """
         reader = _get_reader(self._device)
         ocr_result, _elapse = reader(processed)
+        return self._parse_ocr_result(ocr_result)
 
+    def _parse_ocr_result(self, ocr_result):
+        """将 RapidOCR 原始输出转换为统一的 dict 列表"""
         output = []
         if ocr_result is None:
             return output
