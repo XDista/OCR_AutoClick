@@ -2,7 +2,6 @@
 
 GPU 加速方案：
   - ONNX DirectML    → NVIDIA / AMD / Intel 三家通用（需 pip install onnxruntime-directml）
-  - ONNX CUDA        → NVIDIA 专用（需 pip install onnxruntime-gpu）
   - CPU              → 默认，无需额外安装
 
 用法：
@@ -48,9 +47,6 @@ def _release_onnx_gpu_memory():
     try:
         import onnxruntime as ort
         providers = ort.get_available_providers()
-        if "CUDAExecutionProvider" in providers:
-            import torch
-            torch.cuda.empty_cache()
         if "DmlExecutionProvider" in providers:
             gc.collect()
     except Exception:
@@ -60,14 +56,13 @@ def _release_onnx_gpu_memory():
 def _get_reader(device="cpu"):
     """获取或创建 RapidOCR Reader 实例（线程安全，高频调用优化）
 
-    RapidOCR 原生支持 ONNX Runtime 的 DirectML / CUDA / CPU 后端。
-    通过参数 det_use_dml / cls_use_dml / rec_use_dml 启用 DirectML，
-    或 det_use_cuda / cls_use_cuda / rec_use_cuda 启用 CUDA。
+    RapidOCR 原生支持 ONNX Runtime 的 DirectML / CPU 后端。
+    通过参数 det_use_dml / cls_use_dml / rec_use_dml 启用 DirectML。
 
     模型 ~30MB，首次使用时自动下载缓存。
     切换设备会销毁旧 Reader 并新建。
 
-    :param device: "cpu" / "cuda:0" / "dml:0" ...
+    :param device: "cpu" / "dml:0" ...
     :return: RapidOCR 实例
     """
     global _ocr_reader, _ocr_reader_device, _ocr_reader_providers
@@ -96,8 +91,7 @@ def _get_reader(device="cpu"):
                 "RapidOCR 未安装，请执行:\n"
                 "  pip install rapidocr-onnxruntime\n"
                 "GPU 加速需额外安装:\n"
-                "  NVIDIA/AMD/Intel: pip install onnxruntime-directml\n"
-                "  NVIDIA 专用:       pip install onnxruntime-gpu"
+                "  NVIDIA/AMD/Intel: pip install onnxruntime-directml"
             )
 
         available = _detect_onnx_providers()
@@ -131,18 +125,6 @@ def _get_reader(device="cpu"):
             else:
                 print(
                     "[RapidOCR] DirectML 不可用，请安装 onnxruntime-directml，"
-                    "暂时回退到 CPU。",
-                    flush=True,
-                )
-
-        elif device.startswith("cuda"):
-            if "CUDAExecutionProvider" in available:
-                base_kwargs.update(
-                    det_use_cuda=True, cls_use_cuda=True, rec_use_cuda=True
-                )
-            else:
-                print(
-                    "[RapidOCR] CUDA 不可用，请安装 onnxruntime-gpu，"
                     "暂时回退到 CPU。",
                     flush=True,
                 )
@@ -256,7 +238,7 @@ class OCREngine:
         :param language: 语言代码列表，如 ['ch_sim', 'en']
                          兼容旧 EasyOCR / Tesseract 格式，自动转换
         :param confidence_threshold: 置信度阈值 (0~1)
-        :param device: "cpu" / "cuda:0" / "dml:0" ...
+        :param device: "cpu" / "dml:0" ...
         :param preprocess: 图像预处理设置 dict
         """
         global _ocr_reader, _ocr_reader_device

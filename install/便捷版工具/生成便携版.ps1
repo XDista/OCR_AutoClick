@@ -117,7 +117,7 @@ if ($needBuild) {
     Write-Step "安装构建工具 (setuptools/wheel)..."
     Invoke-Pip "-m pip install setuptools wheel -i $Mirror --progress-bar off --disable-pip-version-check" "ocr_step3.log"
 
-    Write-Step "安装全部依赖 (requirements.txt)，需下载 torch 等大包，请耐心等待..."
+    Write-Step "安装全部依赖 (requirements.txt)，请耐心等待..."
     Invoke-Pip "-m pip install -r requirements.txt -i $Mirror --progress-bar off --disable-pip-version-check" "ocr_step4.log"
     Write-OK "依赖安装完成"
 
@@ -193,7 +193,22 @@ Get-ChildItem $Root -Recurse -Directory -Filter '__pycache__' -EA SilentlyContin
 Get-ChildItem $Root -Recurse -File -Filter '*.pyc' -EA SilentlyContinue | ForEach-Object { Remove-Item $_.FullName -Force -EA SilentlyContinue; $count++ }
 Get-ChildItem $PyDir -Recurse -File -Filter '*.pdb' -EA SilentlyContinue | ForEach-Object { Remove-Item $_.FullName -Force -EA SilentlyContinue; $count++ }
 Remove-Item (Join-Path $PyDir "include") -Recurse -Force -EA SilentlyContinue
-Remove-Item (Join-Path $Root "gpu.json") -Force -EA SilentlyContinue
+
+# 初始化 gpu.json 为 CPU 默认配置，
+# 避免把构建机的 GPU 检测结果带进便携版，让目标机首次启动走默认 CPU 配置。
+$gpuJson = @'
+{
+  "vendor": "cpu",
+  "name": "CPU",
+  "devices": ["CPU"],
+  "opencv_ocl_ready": false,
+  "onnx_providers": [],
+  "device_list": [
+    {"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"}
+  ]
+}
+'@
+[System.IO.File]::WriteAllText((Join-Path $Root "gpu.json"), $gpuJson, (New-Object System.Text.UTF8Encoding($false)))
 Write-OK "清理完成（删除 $count 个缓存项）"
 
 # ============================================================

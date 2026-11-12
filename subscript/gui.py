@@ -1505,7 +1505,7 @@ class AutoClickGUI:
         """
         try:
             from gpu_accelerator import GPUAccelerator
-            devices = GPUAccelerator.detect_cuda_devices(force_refresh=force_refresh)
+            devices = GPUAccelerator.detect_accel_devices(force_refresh=force_refresh)
         except Exception:
             devices = [{"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"}]
 

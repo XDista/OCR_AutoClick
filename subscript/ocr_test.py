@@ -71,7 +71,7 @@ class OCRTest:
     ):
         """
         :param hwnd: 目标窗口句柄（int），ADB 模式时可为 0
-        :param device: 加速设备，如 "cpu" / "cuda:0" / "dml:1"
+        :param device: 加速设备，如 "cpu" / "dml:1"
         :param language: 识别语言，如 "ch_sim,en"
         :param confidence_threshold: 置信度阈值 0.0~1.0
         :param screenshot_mode: 截图模式 "Win32GUI" / "Win32Memory" / "PrintWindow" / "ADB"

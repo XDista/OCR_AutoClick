@@ -3,7 +3,6 @@
 支持 NVIDIA / AMD / Intel 三家 GPU：
   - OpenCV OpenCL     → 图像预处理加速（三家通用，零额外依赖）
   - ONNX DirectML     → OCR 识别加速（三家通用，需 pip install onnxruntime-directml）
-  - ONNX CUDA         → NVIDIA 专用（需 pip install onnxruntime-gpu）
 
 用法：
     from gpu_accelerator import GPUAccelerator
@@ -26,7 +25,7 @@ def _get_gpu_cache_path():
     """获取 gpu.json 路径（项目根目录）"""
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "gpu.json")
 
-# —— OpenCV（项目中已有） ——
+# —— OpenCV  ——
 try:
     import cv2
     _OPENCV_AVAILABLE = True
@@ -49,9 +48,9 @@ def _try_import_onnx():
 
         priority = [
             "DmlExecutionProvider",        # DirectML — Windows 三家通用
-            "CUDAExecutionProvider",       # NVIDIA CUDA
             "OpenVINOExecutionProvider",   # Intel OpenVINO
             "ROCMExecutionProvider",       # AMD ROCm
+            "CUDAExecutionProvider"       # NVIDIA CUDA
         ]
         for p in priority:
             if p in available:
@@ -66,12 +65,11 @@ def _get_gpu_names_via_wmic():
     """通过 WMIC 获取系统 GPU 名称列表（Windows）
 
     不依赖任何第三方库，仅使用 subprocess + WMIC。
-    用于替代 torch_directml.device_name()。
 
     :return: list[str]，GPU 名称列表，失败时返回空列表
     """
-    if sys.platform != "win32":
-        return []
+    #if sys.platform != "win32":
+    #    return []
 
     try:
         result = subprocess.run(
@@ -195,7 +193,7 @@ class GPUAccelerator:
         """将 GPU 检测结果保存到项目根目录 gpu.json"""
         cache_path = _get_gpu_cache_path()
 
-        # 安全获取设备列表，即使 torch 驱动异常也不影响缓存写入
+        # 安全获取设备列表，即使检测异常也不影响缓存写入
         try:
             device_list = GPUAccelerator._build_device_list_raw()
         except Exception:
@@ -240,8 +238,8 @@ class GPUAccelerator:
         """检测系统 GPU（Windows 优先）"""
         info = {"vendor": "unknown", "name": "未知", "devices": []}
 
-        if sys.platform != "win32":
-            return self._detect_gpus_linux(info)
+        #if sys.platform != "win32":
+        #    return self._detect_gpus_linux(info)
 
         # 方式1：WMIC（较快，通常1~3秒）
         try:
@@ -507,11 +505,11 @@ class GPUAccelerator:
 
         return "\n".join(lines)
 
-    # ---------- CUDA 设备列表 ----------
+    # ---------- 加速设备列表 ----------
 
     @staticmethod
-    def detect_cuda_devices(force_refresh=False):
-        """检测可用的 CUDA GPU 设备列表
+    def detect_accel_devices(force_refresh=False):
+        """检测可用的加速 GPU 设备列表（DirectML + CPU）
 
         优先从 gpu.json 缓存读取，除非 force_refresh=True。
 
@@ -519,8 +517,8 @@ class GPUAccelerator:
         :return: list[dict]，每个 dict 含:
             - "index": GPU 索引 (0, 1, ...)
             - "name": GPU 名称
-            - "device": 设备字符串 ("cpu", "cuda:0", "dml:0", ...)
-            - "backend": 后端类型 ("cpu", "cuda", "dml")
+            - "device": 设备字符串 ("cpu", "dml:0", ...)
+            - "backend": 后端类型 ("cpu", "dml")
         """
         return GPUAccelerator._build_device_list(force_refresh=force_refresh)
 
@@ -538,51 +536,23 @@ class GPUAccelerator:
 
     @staticmethod
     def _build_device_list_raw():
-        """实时检测所有可用加速设备列表（CUDA + DirectML + CPU）
+        """实时检测所有可用加速设备列表（DirectML + CPU）
 
-        DirectML 设备可通过 ONNX Runtime + WMIC 检测（无需 torch-directml）。
-        注意：torch 可能因驱动缺失、硬件异常等原因抛出 RuntimeError
-        等非 ImportError 异常，因此这里捕获所有 Exception。
+        DirectML 设备可通过 ONNX Runtime + WMIC 检测。
         """
         devices = [
             {"index": -1, "name": "CPU", "device": "cpu", "backend": "cpu"},
         ]
 
-        # —— CUDA（NVIDIA 专用） ——
-        try:
-            import torch
-            if torch.cuda.is_available():
-                for i in range(torch.cuda.device_count()):
-                    try:
-                        devices.append({
-                            "index": i,
-                            "name": f"NVIDIA {torch.cuda.get_device_name(i)}",
-                            "device": f"cuda:{i}",
-                            "backend": "cuda",
-                        })
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # —— DirectML（通过 ONNX Runtime + WMIC，无需 torch-directml） ——
+        # —— DirectML（通过 ONNX Runtime + WMIC） ——
         try:
             import onnxruntime as ort
             if "DmlExecutionProvider" in ort.get_available_providers():
                 # 通过 WMIC 获取系统 GPU 名称（Windows 系统级 API，无第三方依赖）
                 gpu_names = _get_gpu_names_via_wmic()
 
-                # 排除已在 CUDA 分支中列出的 GPU（避免 NVIDIA 卡重复出现）
-                cuda_names = {
-                    d["name"].replace("NVIDIA ", "") for d in devices
-                    if d.get("backend") == "cuda"
-                }
-
                 dml_index = 0
                 for gpu_name in gpu_names:
-                    # 模糊去重：CUDA 名和 WMIC 名可能略有差异
-                    if any(cn in gpu_name or gpu_name in cn for cn in cuda_names if cn):
-                        continue
                     try:
                         devices.append({
                             "index": dml_index,
@@ -597,16 +567,6 @@ class GPUAccelerator:
             pass
 
         return devices
-
-    @staticmethod
-    def get_torch_device(device_str):
-        """将设备字符串转为 PyTorch device 对象
-
-        :param device_str: "cpu" / "cuda:0" ...
-        :return: torch.device
-        """
-        import torch
-        return torch.device(device_str)
 
 
 # ==================== 全局单例 ====================
