@@ -1,20 +1,21 @@
 ﻿# ============================================================
 #  OCR_AutoClick 便携版一键生成脚本
 # ------------------------------------------------------------
-#  用法：把本脚本和「一键生成便携版.bat」放到项目根目录，双击 bat 即可。
+#  用法：把本脚本和「生成便携版.bat」放到项目根目录，双击 bat 即可。
 #        生成的 zip 在项目上一级目录。
 #
 #  产出：OCR_AutoClick_vX.Y.Z_便携版.zip（解压后双击 启动.bat 即用）
 #
 #  做了什么：
-#    1. 下载可重定位的便携 Python 3.12（python-build-standalone）
+#    1. 优先复用根目录下的便携 Python 3.12 tar.gz（python-build-standalone），
+#       缺失时才从网络下载
 #    2. 修正 requirements.txt 编码（UTF-16 -> UTF-8）
-#    3. 安装全部依赖（清华源，PIP_NO_CACHE_DIR 规避 pip 缓存 bug）
+#    3. 安装全部依赖（清华源，PIP_NO_CACHE_DIR 规避 pip 缓存 bug，显示下载进度）
 #    4. 修复 onnxruntime CPU/GPU 冲突（仅保留 directml 版）
 #    5. 内置 VC++ 运行库（msvcp140/vcomp140 等，免目标机装运行库）
 #    6. 生成 启动.bat
 #    7. 清理 pip 临时目录 / __pycache__ / PDB 等
-#    8. 用 7-Zip 打包成 zip
+#    8. 用 7-Zip 打包成 zip（排除两个构建脚本与 tar.gz）
 # ============================================================
 
 [CmdletBinding()]
@@ -56,9 +57,18 @@ if (-not $tar) {
 }
 Write-OK "7-Zip: $seven"
 
-# pip 执行封装：用 Start-Process + 文件重定向，输出到日志、返回退出码
+# pip 执行封装：默认重定向到日志；-ShowProgress 时共享控制台展示下载进度
 function Invoke-Pip {
-    param([string]$PipArgs, [string]$LogName)
+    param([string]$PipArgs, [string]$LogName, [switch]$ShowProgress)
+    if ($ShowProgress) {
+        $p = Start-Process -FilePath $PythonExe -ArgumentList $PipArgs -WorkingDirectory $Root `
+            -Wait -PassThru -NoNewWindow
+        if ($p.ExitCode -ne 0) {
+            Write-Err "pip 失败 (exit=$($p.ExitCode))"
+            exit 1
+        }
+        return
+    }
     $out = Join-Path $env:TEMP $LogName
     $err = "$out.err"
     Remove-Item $out, $err -ErrorAction SilentlyContinue
@@ -78,19 +88,23 @@ function Invoke-Pip {
 # ============================================================
 $PyDir     = Join-Path $Root "python312"
 $PythonExe = Join-Path $PyDir "python.exe"
+$pyArchiveName = "cpython-$PythonVer+$PyTag-x86_64-pc-windows-msvc-install_only.tar.gz"
 $needBuild = $Force -or -not (Test-Path $PythonExe)
 
 if ($needBuild) {
     # ---------- 1. 下载并部署便携 Python ----------
-    Write-Step "下载便携 Python $PythonVer ..."
+    Write-Step "准备便携 Python $PythonVer ..."
     if (Test-Path $PyDir) { Remove-Item $PyDir -Recurse -Force }
-    $pyUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$PyTag/cpython-$PythonVer%2B$PyTag-x86_64-pc-windows-msvc-install_only.tar.gz"
-    $archive = Join-Path $env:TEMP "cpython-$PythonVer.tar.gz"
-    Write-Host "  下载: $pyUrl"
-    Invoke-WebRequest -Uri $pyUrl -OutFile $archive -UseBasicParsing
+    $archive = Join-Path $Root $pyArchiveName
+    if (Test-Path $archive) {
+        Write-Host "  发现本地缓存: $pyArchiveName，跳过下载"
+    } else {
+        $pyUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$PyTag/cpython-$PythonVer%2B$PyTag-x86_64-pc-windows-msvc-install_only.tar.gz"
+        Write-Host "  下载: $pyUrl"
+        Invoke-WebRequest -Uri $pyUrl -OutFile $archive -UseBasicParsing
+    }
     Write-Host "  解压..."
     tar -xzf $archive -C $Root
-    Remove-Item $archive -Force -ErrorAction SilentlyContinue
     $extracted = Join-Path $Root "python"
     if (-not (Test-Path (Join-Path $extracted "python.exe"))) {
         Write-Err "解压结构异常，未找到 python\python.exe"
@@ -118,7 +132,7 @@ if ($needBuild) {
     Invoke-Pip "-m pip install setuptools wheel -i $Mirror --progress-bar off --disable-pip-version-check" "ocr_step3.log"
 
     Write-Step "安装全部依赖 (requirements.txt)，请耐心等待..."
-    Invoke-Pip "-m pip install -r requirements.txt -i $Mirror --progress-bar off --disable-pip-version-check" "ocr_step4.log"
+    Invoke-Pip "-m pip install -r requirements.txt -i $Mirror --disable-pip-version-check" "ocr_step4.log" -ShowProgress
     Write-OK "依赖安装完成"
 
     # ---------- 4. 修复 onnxruntime 冲突 ----------
@@ -221,7 +235,7 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 $zipOut = Join-Path $env:TEMP "7z_pack.log"
 $zipErr = Join-Path $env:TEMP "7z_pack.err"
 Remove-Item $zipOut, $zipErr -ErrorAction SilentlyContinue
-$zipArgs = "a -tzip -mx=7 -mmt=on `"$zip`" `"$Root`""
+$zipArgs = "a -tzip -mx=7 -mmt=on `"$zip`" `"$Root`" -xr!生成便携版.bat -xr!生成便携版.ps1 -xr!$pyArchiveName"
 $zp = Start-Process -FilePath $seven -ArgumentList $zipArgs -RedirectStandardOutput $zipOut -RedirectStandardError $zipErr -Wait -PassThru -NoNewWindow
 if ($zp.ExitCode -ne 0) {
     Write-Err "7-Zip 打包失败 (exit=$($zp.ExitCode))"
