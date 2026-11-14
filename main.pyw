@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "sub
 from subscript.gui import AutoClickGUI
 from app_registry import set_app
 
-APP_VERSION = "1.5.2"
-UPDATE_TIME = "2026-11-08 12:00:00"
+APP_VERSION = "1.5.3"
+UPDATE_TIME = "2026-11-15 12:00:00"
 
 try:
     ctypes.windll.user32.SetProcessDPIAware()
