@@ -29,7 +29,6 @@ completion 回调收到 dict:
 import gc
 import threading
 import time
-from gpu_accelerator import GPUAccelerator
 from screenshot_capture import (
     capture_window_win32gui,
     capture_window_memory,
@@ -66,6 +65,7 @@ class OCRTest:
         grayscale=True,
         threshold_enabled=False,
         threshold_value=127,
+        rapidocr_params=None,
         on_progress=None,
         on_complete=None,
     ):
@@ -79,6 +79,7 @@ class OCRTest:
         :param grayscale: 是否灰度化
         :param threshold_enabled: 是否二值化
         :param threshold_value: 二值化阈值 0~255
+        :param rapidocr_params: RapidOCR 库参数 dict（rec_batch_num 等，可选）
         :param on_progress: 进度回调 callable(str)
         :param on_complete: 完成回调 callable(dict)
         """
@@ -91,6 +92,7 @@ class OCRTest:
         self._grayscale = grayscale
         self._threshold_enabled = threshold_enabled
         self._threshold_value = threshold_value
+        self._rapidocr_params = dict(rapidocr_params) if rapidocr_params else {}
         self._on_progress = on_progress
         self._on_complete = on_complete
 
@@ -168,7 +170,6 @@ class OCRTest:
                 f"  |  语言: {self._language}"
                 f"  |  置信度阈值: {self._confidence_threshold}"
             )
-            self._emit_progress("  正在加载模型（首次较慢），请稍候 ...")
 
             if self._is_cancelled():
                 self._finish(self.STATUS_CANCELLED, None)
@@ -176,11 +177,13 @@ class OCRTest:
 
             # ---- 截图 ----
             self._emit_progress("  正在截取窗口 ...")
+            t_capture = time.perf_counter()
             screenshot = _capture(
                 hwnd=self._hwnd,
                 mode=self._screenshot_mode,
                 adb_device_serial=self._adb_device_serial,
             )
+            capture_ms = (time.perf_counter() - t_capture) * 1000
             if screenshot is None:
                 self._emit_progress("  ❌ 截图失败")
                 self._finish(self.STATUS_ERROR, None)
@@ -194,21 +197,30 @@ class OCRTest:
                 f"  截图尺寸: {screenshot.shape[1]}x{screenshot.shape[0]}"
             )
 
-            # ---- 预处理 ----
-            processed = _preprocess(
+            # ---- 预处理 & OCR ----
+            from ocr_engine import _get_reader, is_reader_ready, preprocess_image
+            t_preprocess = time.perf_counter()
+            processed = preprocess_image(
                 screenshot,
                 grayscale=self._grayscale,
                 threshold_enabled=self._threshold_enabled,
                 threshold_value=self._threshold_value,
             )
+            preprocess_ms = (time.perf_counter() - t_preprocess) * 1000
 
-            # ---- OCR ----
+            if not is_reader_ready(self._device, rapidocr_params=self._rapidocr_params):
+                self._emit_progress("  正在加载模型（首次较慢），请稍候 ...")
             self._emit_progress("  OCR 识别中 ...")
-            from ocr_engine import _get_reader
-            reader = _get_reader(self._device)
+            t_load = time.perf_counter()
+            reader = _get_reader(self._device, rapidocr_params=self._rapidocr_params)
+            load_ms = (time.perf_counter() - t_load) * 1000
+
+            t_infer = time.perf_counter()
             ocr_result, _elapse = reader(processed)
+            infer_ms = (time.perf_counter() - t_infer) * 1000
 
             # ---- 整理结果 ----
+            t_parse = time.perf_counter()
             texts = []
             if ocr_result:
                 for box, text, score in ocr_result:
@@ -230,8 +242,19 @@ class OCRTest:
                         "confidence": int(score * 100),
                         "bbox": [x, y, w, h],
                     })
+            parse_ms = (time.perf_counter() - t_parse) * 1000
 
             duration_ms = round((time.perf_counter() - start_time) * 1000)
+
+            # ---- 耗时分解 ----
+            self._emit_progress(
+                f"  ⏱ 耗时分解: 截图={capture_ms:.1f}ms | "
+                f"预处理={preprocess_ms:.1f}ms | 模型加载={load_ms:.1f}ms | "
+                f"推理={infer_ms:.1f}ms | 结果整理={parse_ms:.1f}ms | 总计={duration_ms}ms"
+            )
+            elapse_str = _format_elapse(_elapse)
+            if elapse_str:
+                self._emit_progress(f"  ⏱ RapidOCR 内部耗时: {elapse_str}")
 
             result = {
                 "duration_ms": duration_ms,
@@ -259,18 +282,26 @@ class OCRTest:
             gc.collect()
 
 
-# ==================== 图像预处理 ====================
+# ==================== 耗时格式化 ====================
 
-def _preprocess(img_bgr, *, grayscale, threshold_enabled, threshold_value):
-    """图像预处理（使用 GPUAccelerator 获得 OpenCL 加速）"""
-    gpu = GPUAccelerator()
-    gpu.detect()
-    return gpu.preprocess_image(
-        img_bgr,
-        grayscale=grayscale or threshold_enabled,
-        threshold_enabled=threshold_enabled,
-        threshold_value=threshold_value,
-    )
+def _format_elapse(elapse):
+    """将 RapidOCR 返回的分阶段耗时格式化为可读字符串
+
+    RapidOCR 返回 [det, cls, rec] 三段耗时（单位：秒）。
+    :return: 形如 "det=12.3ms  cls=0.4ms  rec=5.1ms"；失败/为空时返回空串。
+    """
+    if not elapse:
+        return ""
+    try:
+        names = ("det", "cls", "rec")
+        parts = []
+        for name, val in zip(names, elapse):
+            if isinstance(val, (list, tuple)):
+                val = sum(float(v) for v in val)
+            parts.append(f"{name}={float(val) * 1000:.1f}ms")
+        return "  ".join(parts)
+    except Exception:
+        return ""
 
 
 # ==================== 截图（复用 screenshot_capture） ====================

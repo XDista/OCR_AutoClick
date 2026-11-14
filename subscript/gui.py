@@ -44,18 +44,56 @@ class AutoClickGUI:
         self.version = version
 
         config = init_main_config()
-        selfgeometry = config["WindowConfig"]["selfgeometry"]
-        selfxy_resizable = int(config["WindowConfig"]["selfxy_resizable"])
+
+        def _cfg_str(section, key, default):
+            raw = str(config[section].get(key, "")).strip()
+            return raw if raw else default
+
+        def _cfg_int(section, key, default):
+            raw = str(config[section].get(key, "")).strip()
+            try:
+                return int(raw)
+            except (ValueError, TypeError):
+                return default
+
+        def _cfg_float(section, key, default):
+            raw = str(config[section].get(key, "")).strip()
+            try:
+                return float(raw)
+            except (ValueError, TypeError):
+                return default
+
+        def _cfg_bool(section, key, default):
+            raw = str(config[section].get(key, "")).strip().lower()
+            if raw in ("1", "true", "yes", "on"):
+                return True
+            if raw in ("0", "false", "no", "off"):
+                return False
+            return default
+
+        selfgeometry = _cfg_str("WindowConfig", "selfgeometry", "1200x600")
+        selfxy_resizable = _cfg_int("WindowConfig", "selfxy_resizable", 1)
         self.root.geometry(selfgeometry)
         self.root.resizable(selfxy_resizable, selfxy_resizable)
 
-        self.ocr_lang = config["OCRConfig"].get("ocr_language", "ch_sim, en")
-        self.ocr_device = config["OCRConfig"].get("ocr_device", "cpu")
-        self.ocr_conf = float(config["OCRConfig"].get("ocr_confidence", "0.7"))
-        self.ocr_gray = config["OCRConfig"].get("ocr_grayscale", "True") == "True"
-        self.ocr_thresh = config["OCRConfig"].get("ocr_threshold", "False") == "True"
-        self.task_mode = config["GENERAL"].get("task_mode", "template")
-        self.match_threshold = float(config["TemplateMatchConfig"].get("match_threshold", "0.9"))
+        self.ocr_lang = _cfg_str("OCRConfig", "ocr_language", "ch_sim, en")
+        self.ocr_device = _cfg_str("OCRConfig", "ocr_device", "cpu")
+        self.ocr_conf = _cfg_float("OCRConfig", "ocr_confidence", 0.7)
+        self.ocr_gray = _cfg_bool("OCRConfig", "ocr_grayscale", True)
+        self.ocr_thresh = _cfg_bool("OCRConfig", "ocr_threshold", False)
+
+        det_limit_type = _cfg_str("OCRConfig", "det_limit_type", "min")
+        if det_limit_type not in ("min", "max"):
+            det_limit_type = "min"
+        self.ocr_rapidocr_params = {
+            "rec_batch_num": _cfg_int("OCRConfig", "rec_batch_num", 6),
+            "cls_batch_num": _cfg_int("OCRConfig", "cls_batch_num", 6),
+            "det_limit_type": det_limit_type,
+            "det_limit_side_len": _cfg_int("OCRConfig", "det_limit_side_len", 736),
+            "use_cls": _cfg_bool("OCRConfig", "use_cls", True),
+        }
+        self.task_mode = _cfg_str("GENERAL", "task_mode", "template")
+        self.match_threshold = _cfg_float("TemplateMatchConfig", "match_threshold", 0.9)
 
         saved_theme = load_theme_config(MAIN_CONFIG_PATH)
         if saved_theme and saved_theme in ("light", "dark"):
@@ -76,7 +114,12 @@ class AutoClickGUI:
         self.stop_flag = False
 
         self.ocr_engine = OCREngine()
-        self.ocr_engine.configure(device=self.ocr_device, language=self.ocr_lang, confidence_threshold=self.ocr_conf)
+        self.ocr_engine.configure(
+            device=self.ocr_device,
+            language=self.ocr_lang,
+            confidence_threshold=self.ocr_conf,
+            rapidocr_params=self.ocr_rapidocr_params,
+        )
         self.ocr_task_dir = os.path.join(BASE_DIR, "task_ocr")
         self._ocr_test_instance = None
         self._img_match_test_instance = None
@@ -650,6 +693,90 @@ class AutoClickGUI:
             self._save_ocr_config_key("ocr_device", device)
             self.log(f"✅ 加速设备已切换为：{display_name}")
         self.ocr_device_var.trace_add("write", _on_ocr_device_change)
+
+        # rapidocr_frame = ttk.LabelFrame(ocr_frame, text="RapidOCR 参数", padding="10")
+        # rapidocr_frame.pack(fill=tk.X, padx=10, pady=2)
+
+        # def _apply_int_param(var, label, ini_key, param_key):
+        #     def _apply(*_args):
+        #         try:
+        #             val = int(var.get())
+        #         except (ValueError, tk.TclError):
+        #             return
+        #         self.ocr_rapidocr_params[param_key] = val
+        #         self.ocr_engine.configure(rapidocr_params={param_key: val})
+        #         self._save_ocr_config_key(ini_key, str(val))
+        #         self.log(f"✅ {label}已更新为：{val}")
+        #     return _apply
+
+        # ttk.Label(rapidocr_frame, text="识别批大小(rec_batch_num)：").grid(
+        #     row=0, column=0, padx=5, pady=3, sticky="w")
+        # self.ocr_rec_batch_num_var = tk.StringVar(
+        #     value=str(self.ocr_rapidocr_params["rec_batch_num"]))
+        # _rec_apply = _apply_int_param(
+        #     self.ocr_rec_batch_num_var, "识别批大小", "rec_batch_num", "rec_batch_num")
+        # rec_batch_num_spin = ttk.Spinbox(
+        #     rapidocr_frame, from_=1, to=1024, textvariable=self.ocr_rec_batch_num_var,
+        #     width=8, command=_rec_apply)
+        # rec_batch_num_spin.grid(row=0, column=1, padx=2, pady=3, sticky="w")
+        # rec_batch_num_spin.bind("<Return>", _rec_apply)
+        # rec_batch_num_spin.bind("<FocusOut>", _rec_apply)
+
+        # ttk.Label(rapidocr_frame, text="分类批大小(cls_batch_num)：").grid(
+        #     row=0, column=2, padx=(15, 2), pady=3, sticky="w")
+        # self.ocr_cls_batch_num_var = tk.StringVar(
+        #     value=str(self.ocr_rapidocr_params["cls_batch_num"]))
+        # _cls_apply = _apply_int_param(
+        #     self.ocr_cls_batch_num_var, "分类批大小", "cls_batch_num", "cls_batch_num")
+        # cls_batch_num_spin = ttk.Spinbox(
+        #     rapidocr_frame, from_=1, to=1024, textvariable=self.ocr_cls_batch_num_var,
+        #     width=8, command=_cls_apply)
+        # cls_batch_num_spin.grid(row=0, column=3, padx=2, pady=3, sticky="w")
+        # cls_batch_num_spin.bind("<Return>", _cls_apply)
+        # cls_batch_num_spin.bind("<FocusOut>", _cls_apply)
+
+        # ttk.Label(rapidocr_frame, text="检测边长(det_limit_side_len)：").grid(
+        #     row=0, column=4, padx=(15, 2), pady=3, sticky="w")
+        # self.ocr_det_limit_side_len_var = tk.StringVar(
+        #     value=str(self.ocr_rapidocr_params["det_limit_side_len"]))
+        # _det_side_apply = _apply_int_param(
+        #     self.ocr_det_limit_side_len_var, "检测边长", "det_limit_side_len", "det_limit_side_len")
+        # det_limit_side_len_spin = ttk.Spinbox(
+        #     rapidocr_frame, from_=32, to=4000, textvariable=self.ocr_det_limit_side_len_var,
+        #     width=8, command=_det_side_apply)
+        # det_limit_side_len_spin.grid(row=0, column=5, padx=2, pady=3, sticky="w")
+        # det_limit_side_len_spin.bind("<Return>", _det_side_apply)
+        # det_limit_side_len_spin.bind("<FocusOut>", _det_side_apply)
+
+        # ttk.Label(rapidocr_frame, text="检测缩放模式(det_limit_type)：").grid(
+        #     row=1, column=0, padx=5, pady=3, sticky="w")
+        # self.ocr_det_limit_type_var = tk.StringVar(
+        #     value=self.ocr_rapidocr_params["det_limit_type"])
+        # det_limit_type_combo = ttk.Combobox(
+        #     rapidocr_frame, textvariable=self.ocr_det_limit_type_var,
+        #     values=["min", "max"], state="readonly", width=6)
+        # det_limit_type_combo.grid(row=1, column=1, padx=2, pady=3, sticky="w")
+
+        # def _on_det_limit_type_change(*_args):
+        #     val = self.ocr_det_limit_type_var.get()
+        #     self.ocr_rapidocr_params["det_limit_type"] = val
+        #     self.ocr_engine.configure(rapidocr_params={"det_limit_type": val})
+        #     self._save_ocr_config_key("det_limit_type", val)
+        #     self.log(f"✅ 检测缩放模式已更新为：{val}")
+        # self.ocr_det_limit_type_var.trace_add("write", _on_det_limit_type_change)
+
+        # self.ocr_use_cls_var = tk.BooleanVar(
+        #     value=self.ocr_rapidocr_params["use_cls"])
+
+        # def _on_use_cls_change():
+        #     val = self.ocr_use_cls_var.get()
+        #     self.ocr_rapidocr_params["use_cls"] = val
+        #     self.ocr_engine.configure(rapidocr_params={"use_cls": val})
+        #     self._save_ocr_config_key("use_cls", "1" if val else "0")
+        #     self.log(f"✅ 方向分类(use_cls)已{'开启' if val else '关闭'}")
+        # ttk.Checkbutton(rapidocr_frame, text="方向分类(use_cls)",
+        #                 variable=self.ocr_use_cls_var, command=_on_use_cls_change
+        #                 ).grid(row=1, column=2, padx=(15, 2), pady=3, sticky="w")
 
         ocr_pre_frame = ttk.LabelFrame(ocr_frame, text="图像预处理", padding="10")
         ocr_pre_frame.pack(fill=tk.X, padx=10, pady=2)
@@ -1303,8 +1430,11 @@ class AutoClickGUI:
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
 
-        self.enable_schedule_var.set(main_config["GENERAL"].getboolean("enable_schedule"))
-        self.schedule_time_var.set(main_config["GENERAL"]["next_start_time"])
+        try:
+            self.enable_schedule_var.set(main_config["GENERAL"].getboolean("enable_schedule"))
+        except (ValueError, KeyError):
+            self.enable_schedule_var.set(False)
+        self.schedule_time_var.set(main_config["GENERAL"].get("next_start_time", "00:00:00"))
 
         mode = main_config["GENERAL"]["schedule_mode"]
         self.schedule_mode_var.set("仅一次" if mode == "once" else "始终")
@@ -1571,6 +1701,7 @@ class AutoClickGUI:
             adb_device_serial=adb_device_serial,
             grayscale=self.ocr_gray_var.get(),
             threshold_enabled=self.ocr_thresh_var.get(),
+            rapidocr_params=ocr_cfg.get("rapidocr"),
             on_progress=lambda msg: self.root.after(0, lambda m=msg: self.log(m)),
             on_complete=lambda result: self.root.after(
                 0, lambda r=result: self._on_ocr_test_complete(r)

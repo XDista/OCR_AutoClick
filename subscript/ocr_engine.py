@@ -23,7 +23,18 @@ from gpu_accelerator import get_gpu_accelerator
 _ocr_reader = None          # RapidOCR 实例
 _ocr_reader_device = None   # 当前实例对应的设备字符串
 _ocr_reader_providers = None  # 实际使用的 ONNX providers
+_ocr_reader_params = None   # 当前实例对应的 RapidOCR 库参数（dict）
 _reader_lock = threading.Lock()  # 保护 _ocr_reader 的创建/销毁
+
+
+# RapidOCR 库默认参数（与 rapidocr_onnxruntime/config.yaml 保持一致）
+DEFAULT_RAPIDOCR_PARAMS = {
+    "rec_batch_num": 6,
+    "cls_batch_num": 6,
+    "det_limit_type": "min",
+    "det_limit_side_len": 736,
+    "use_cls": True,
+}
 
 
 _ONNX_AVAILABLE_PROVIDERS = None
@@ -53,27 +64,36 @@ def _release_onnx_gpu_memory():
         pass
 
 
-def _get_reader(device="cpu"):
+def _get_reader(device="cpu", rapidocr_params=None):
     """获取或创建 RapidOCR Reader 实例（线程安全，高频调用优化）
 
     RapidOCR 原生支持 ONNX Runtime 的 DirectML / CPU 后端。
     通过参数 det_use_dml / cls_use_dml / rec_use_dml 启用 DirectML。
 
     模型 ~30MB，首次使用时自动下载缓存。
-    切换设备会销毁旧 Reader 并新建。
+    切换设备或 RapidOCR 库参数会销毁旧 Reader 并新建。
 
     :param device: "cpu" / "dml:0" ...
+    :param rapidocr_params: 可选 dict，覆盖 RapidOCR 库默认参数
+        （rec_batch_num / cls_batch_num / det_limit_type /
+          det_limit_side_len / use_cls）
     :return: RapidOCR 实例
     """
-    global _ocr_reader, _ocr_reader_device, _ocr_reader_providers
+    global _ocr_reader, _ocr_reader_device, _ocr_reader_providers, _ocr_reader_params
+
+    params = dict(DEFAULT_RAPIDOCR_PARAMS)
+    if rapidocr_params:
+        params.update(rapidocr_params)
 
     # 快速路径：无锁检查（覆盖 99% 的调用）
     reader = _ocr_reader
-    if reader is not None and _ocr_reader_device == device:
+    if (reader is not None and _ocr_reader_device == device
+            and _ocr_reader_params == params):
         return reader
 
     with _reader_lock:
-        if _ocr_reader is not None and _ocr_reader_device == device:
+        if (_ocr_reader is not None and _ocr_reader_device == device
+                and _ocr_reader_params == params):
             return _ocr_reader
 
         if _ocr_reader is not None:
@@ -81,6 +101,7 @@ def _get_reader(device="cpu"):
             _ocr_reader = None
             _ocr_reader_device = None
             _ocr_reader_providers = None
+            _ocr_reader_params = None
             gc.collect()
             _release_onnx_gpu_memory()
 
@@ -95,7 +116,7 @@ def _get_reader(device="cpu"):
             )
 
         available = _detect_onnx_providers()
-        base_kwargs = {"text_score": 0.0}
+        base_kwargs = {"text_score": 0.0, **params}
 
         if device.startswith("dml"):
             if "DmlExecutionProvider" in available:
@@ -121,6 +142,7 @@ def _get_reader(device="cpu"):
                     OrtInferSession._get_ep_list = _original_get_ep_list
                 _ocr_reader_providers = _read_actual_providers(_ocr_reader)
                 _ocr_reader_device = device
+                _ocr_reader_params = params
                 return _ocr_reader
             else:
                 print(
@@ -132,6 +154,7 @@ def _get_reader(device="cpu"):
         _ocr_reader = RapidOCR(**base_kwargs)
         _ocr_reader_providers = _read_actual_providers(_ocr_reader)
         _ocr_reader_device = device
+        _ocr_reader_params = params
         return _ocr_reader
 
 
@@ -162,17 +185,105 @@ def get_reader_providers():
     return _ocr_reader_providers or ["CPUExecutionProvider"]
 
 
+def is_reader_ready(device="cpu", rapidocr_params=None):
+    """判断指定设备的 Reader 是否已缓存（无需重新加载）
+
+    供 GUI / 测试流程在调用 _get_reader 前判断是否需要提示"正在加载模型"。
+    :param device: "cpu" / "dml:0" ...
+    :param rapidocr_params: 与 _get_reader 相同含义
+    :return: bool
+    """
+    global _ocr_reader, _ocr_reader_device, _ocr_reader_params
+    params = dict(DEFAULT_RAPIDOCR_PARAMS)
+    if rapidocr_params:
+        params.update(rapidocr_params)
+    return (_ocr_reader is not None and _ocr_reader_device == device
+            and _ocr_reader_params == params)
+
+
 def cleanup_ocr_reader():
     """显式释放模块级缓存的 OCR Reader（退出时调用）"""
-    global _ocr_reader, _ocr_reader_device, _ocr_reader_providers
+    global _ocr_reader, _ocr_reader_device, _ocr_reader_providers, _ocr_reader_params
     with _reader_lock:
         if _ocr_reader is not None:
             del _ocr_reader
             _ocr_reader = None
             _ocr_reader_device = None
             _ocr_reader_providers = None
+            _ocr_reader_params = None
             gc.collect()
             _release_onnx_gpu_memory()
+
+
+# ==================== 图像预处理 ====================
+
+# 小图面积阈值：低于该值视为"小图"，预处理直接走 CPU，
+# 避免 OpenCL kernel 启动/同步的固定开销（小图时该开销反而大于计算本身）
+_SMALL_IMAGE_AREA = 100_000
+
+
+def preprocess_image(img_bgr, *, grayscale=True, scale=1.0,
+                     threshold_enabled=False, threshold_value=127):
+    """GPU/CPU 自适应的 OCR 图像预处理
+
+    - 复用全局 GPUAccelerator 单例（避免每次重复 detect / 读 gpu.json）
+    - 小图（面积 < _SMALL_IMAGE_AREA）直接走 CPU 路径
+    - 大图走 OpenCL 加速路径
+    """
+    gpu = get_gpu_accelerator()
+    grayscale_flag = grayscale or threshold_enabled
+
+    h, w = img_bgr.shape[:2]
+    if w * h < _SMALL_IMAGE_AREA:
+        return _preprocess_cpu(
+            img_bgr,
+            grayscale=grayscale_flag,
+            scale=scale,
+            threshold_enabled=threshold_enabled,
+            threshold_value=threshold_value,
+        )
+
+    gpu.detect()  # 大图走 GPU 前确保检测完成（单例内部有缓存，成本极低）
+    return gpu.preprocess_image(
+        img_bgr,
+        grayscale=grayscale_flag,
+        scale=scale,
+        threshold_enabled=threshold_enabled,
+        threshold_value=threshold_value,
+    )
+
+
+def _preprocess_cpu(img_bgr, *, grayscale, scale, threshold_enabled, threshold_value):
+    """CPU 图像预处理
+
+    小图走 OpenCL 会因固定开销负优化，这里用 numpy 直接在 CPU 上计算，
+    且不切换全局 OpenCL 状态，线程安全。
+    """
+    import numpy as np
+    import cv2
+
+    img = img_bgr
+    if grayscale:
+        if img.ndim == 3:
+            # BGR → 灰度：Y = 0.114B + 0.587G + 0.299R（与 OpenCV BGR2GRAY 一致）
+            img = np.round(
+                img[..., 0].astype(np.float32) * 0.114
+                + img[..., 1].astype(np.float32) * 0.587
+                + img[..., 2].astype(np.float32) * 0.299
+            ).astype(np.uint8)
+    else:
+        if img.ndim == 3:
+            img = img[..., ::-1].copy()  # BGR → RGB
+
+    if scale != 1.0:
+        h, w = img.shape[:2]
+        img = cv2.resize(img, (int(w * scale), int(h * scale)),
+                         interpolation=cv2.INTER_CUBIC)
+
+    if threshold_enabled:
+        img = np.where(img > threshold_value, 255, 0).astype(np.uint8)
+
+    return img
 
 
 # ==================== OCR 引擎核心 ====================
@@ -226,13 +337,14 @@ class OCREngine:
             "threshold_value": 127,
             "scale": 1.0,
         }
+        self._rapidocr_params = dict(DEFAULT_RAPIDOCR_PARAMS)
         self._gpu = get_gpu_accelerator()
         self._gpu.detect()  # 缓存优先，首次走后备检测，后续从 gpu.json 读取
 
     # ---------- 配置 ----------
 
     def configure(self, language=None, confidence_threshold=None, device=None,
-                  preprocess=None):
+                  preprocess=None, rapidocr_params=None):
         """配置 OCR 参数
 
         :param language: 语言代码列表，如 ['ch_sim', 'en']
@@ -240,12 +352,16 @@ class OCREngine:
         :param confidence_threshold: 置信度阈值 (0~1)
         :param device: "cpu" / "dml:0" ...
         :param preprocess: 图像预处理设置 dict
+        :param rapidocr_params: RapidOCR 库参数 dict（rec_batch_num / cls_batch_num /
+                                det_limit_type / det_limit_side_len / use_cls）
         """
-        global _ocr_reader, _ocr_reader_device
+        global _ocr_reader, _ocr_reader_device, _ocr_reader_providers, _ocr_reader_params
         if language is not None:
             self._language = self._normalize_language(language)
             _ocr_reader = None
             _ocr_reader_device = None
+            _ocr_reader_providers = None
+            _ocr_reader_params = None
         if confidence_threshold is not None:
             self._confidence_threshold = confidence_threshold
         if device is not None and device != self._device:
@@ -253,8 +369,15 @@ class OCREngine:
             _ocr_reader = None
             _ocr_reader_device = None
             _ocr_reader_providers = None
+            _ocr_reader_params = None
         if preprocess is not None:
             self._preprocess.update(preprocess)
+        if rapidocr_params is not None:
+            self._rapidocr_params.update(rapidocr_params)
+            _ocr_reader = None
+            _ocr_reader_device = None
+            _ocr_reader_providers = None
+            _ocr_reader_params = None
 
     @staticmethod
     def _normalize_language(lang):
@@ -287,6 +410,7 @@ class OCREngine:
             "confidence_threshold": self._confidence_threshold,
             "device": self._device,
             "preprocess": dict(self._preprocess),
+            "rapidocr": dict(self._rapidocr_params),
         }
 
     def gpu_summary(self, force_refresh=False):
@@ -323,8 +447,8 @@ class OCREngine:
     # ---------- 图像预处理 ----------
 
     def _preprocess_image(self, img_bgr):
-        """对截图进行 OCR 前的预处理（OpenCV OpenCL 自动加速）"""
-        return self._gpu.preprocess_image(
+        """对截图进行 OCR 前的预处理（小图走 CPU，大图走 OpenCL）"""
+        return preprocess_image(
             img_bgr,
             grayscale=self._preprocess.get("grayscale", True),
             scale=self._preprocess.get("scale", 1.0),
@@ -352,7 +476,7 @@ class OCREngine:
         :param processed: 已经过 _preprocess_image 处理的 numpy 数组
         :return: list[dict]，与 recognize() 相同的输出格式
         """
-        reader = _get_reader(self._device)
+        reader = _get_reader(self._device, rapidocr_params=self._rapidocr_params)
         ocr_result, _elapse = reader(processed)
         return self._parse_ocr_result(ocr_result)
 

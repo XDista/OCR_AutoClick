@@ -86,9 +86,14 @@ def init_main_config():
         "ocr_language": "ch_sim, en",
         "ocr_device": "cpu",
         "current_ocr_task": "",
+        "rec_batch_num": "6",
+        "cls_batch_num": "6",
+        "det_limit_type": "min",
+        "det_limit_side_len": "736",
+        "use_cls": "1",
     }
     for key, value in default_ocr_config.items():
-        if key not in config["OCRConfig"]:
+        if key not in config["OCRConfig"] or not str(config["OCRConfig"][key]).strip():
             config["OCRConfig"][key] = value
 
     with open(MAIN_CONFIG_PATH, "w", encoding="utf-8") as f:

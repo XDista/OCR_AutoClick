@@ -457,6 +457,7 @@ def worker_ocr(app):
         device=app.ocr_device,
         language=app.ocr_lang,
         confidence_threshold=app.ocr_conf,
+        rapidocr_params=app.ocr_rapidocr_params,
     )
 
     while not app.stop_flag:
