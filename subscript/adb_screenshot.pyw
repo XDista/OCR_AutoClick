@@ -5,14 +5,17 @@ import sys
 import threading
 import configparser
 import tkinter as tk
-import ctypes
 from tkinter import ttk, messagebox, filedialog
 
-# 解决高DPI显示模糊问题
-try:
-    ctypes.windll.user32.SetProcessDPIAware()
-except:
-    pass
+from dpi_scaling import (
+    enable_dpi_awareness,
+    get_dpi_scale,
+    scale_geometry,
+    patch_geometry_managers,
+)
+
+# 每显示器 DPI 感知 v2，适配不同缩放屏幕
+enable_dpi_awareness()
 
 # -------------------------- 全局配置 --------------------------
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
@@ -40,7 +43,12 @@ class ADBScreenshotGUI:
         config = init_main_config()  # 确保配置已初始化
         adbscrgeometry = config["WindowConfig"]["adbscrgeometry"]
         adbscrxy_resizable = int(config["WindowConfig"]["adbscrxy_resizable"])
-        self.root.geometry(adbscrgeometry)#主窗口长宽
+
+        # DPI 缩放因子与间距等比缩放
+        self.dpi_scale = get_dpi_scale(self.root)
+        patch_geometry_managers(self.dpi_scale)
+
+        self.root.geometry(scale_geometry(adbscrgeometry, self.dpi_scale))#主窗口长宽
         self.root.resizable(adbscrxy_resizable, adbscrxy_resizable)
 
         # 1. 读取配置文件（从config.ini读取配置）

@@ -540,6 +540,47 @@ class CustomNotebook(tk.Frame):
         if self._on_tab_change:
             self._on_tab_change(None)
 
+    def pages(self):
+        """返回所有标签页内容框架（按标签添加顺序）。"""
+        return [frame for _, frame in self._tabs]
+
+    def fit_height(self, bottom_extra=0, _attempts=3):
+        """按当前标签页内容的自然高度调整整个标签页控件的高度。
+
+        标签页内容通过 place(relheight=1) 填充 content，其自然高度不会反馈给
+        控件本身；若控件高度固定，在不同 DPI 缩放下内容自然高度的缩放比例与
+        固定像素值不一致，就会在内容底部留下大小不一的空白。调用本方法后，
+        内容恰好铺满可用区域，底部只保留 bottom_extra 指定的额外留白。
+
+        bottom_extra 用于补偿 ttk.LabelFrame 标题凸出到边框上沿之上的高度，
+        使末框下框线到标签页底边的间距与首框上框线到标签栏底线的间距一致。
+
+        返回是否实际调整了高度；标签页尚未映射时会在稍后重试。
+        """
+        if self._selected < 0 or self._selected >= len(self._tabs):
+            return False
+        try:
+            if not self.winfo_exists():
+                return False
+        except tk.TclError:
+            return False
+        self.update_idletasks()
+        page = self._tabs[self._selected][1]
+        if not page.winfo_ismapped():
+            if _attempts > 0:
+                self.after(50, lambda: self.fit_height(bottom_extra, _attempts - 1))
+            return False
+        try:
+            extra = max(0, int(bottom_extra))
+        except (TypeError, ValueError):
+            extra = 0
+        target = page.winfo_reqheight() + extra
+        delta = target - page.winfo_height()
+        if delta == 0:
+            return False
+        self.configure(height=max(1, self.winfo_height() + delta))
+        return True
+
     def update_colors(self, colors):
         self._colors = colors
         self.config(bg=colors["frame_bg"])

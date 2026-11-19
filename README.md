@@ -29,16 +29,6 @@ OCR_AutoClick/
 ├── gpu.json                  # GPU 检测缓存
 ├── app_registry.py           # 全局 app 实例注册
 ├── subscript/                # 核心模块
-│   ├── gui.py                # GUI 界面
-│   ├── task_worker.py        # 后台任务工作线程
-│   ├── action_executor.py    # 动作执行器
-│   ├── ocr_engine.py         # OCR 引擎（基于 RapidOCR + ONNX Runtime）
-│   ├── image_matcher.py      # 多尺度模板匹配
-│   ├── screenshot_capture.py # 截图捕获
-│   ├── config_manager.py     # 配置管理
-│   ├── window_utils.py       # 窗口工具
-│   ├── gpu_accelerator.py    # GPU 硬件加速检测与配置
-│   └── project_paths.py      # 项目路径定义
 ├── tasks/                    # 任务组配置文件
 ├── refs/                     # 模板匹配参考图文件夹（支持子文件夹）
 ├── task_ocr/                 # OCR 任务配置文件

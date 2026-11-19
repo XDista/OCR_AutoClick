@@ -5,18 +5,22 @@ import win32con
 import threading
 import time
 import pyautogui
-import ctypes
 import win32api
 import configparser
 import os
 import psutil
 import win32process
 
-# 解决高DPI显示模糊问题
-try:
-    ctypes.windll.user32.SetProcessDPIAware()
-except:
-    pass
+from dpi_scaling import (
+    enable_dpi_awareness,
+    get_dpi_scale,
+    scale_pixels,
+    scale_geometry,
+    patch_geometry_managers,
+)
+
+# 每显示器 DPI 感知 v2，适配不同缩放屏幕
+enable_dpi_awareness()
 
 # 配置路径设置
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -97,7 +101,12 @@ class AdvancedCoordinatePicker:
         config = init_main_config()  # 确保配置已初始化
         scrgeometry = config["WindowConfig"]["scrgeometry"]
         scr_resizable = int(config["WindowConfig"]["scrxy_resizable"])
-        self.root.geometry(scrgeometry)#主窗口长宽
+
+        # DPI 缩放因子与间距等比缩放
+        self.dpi_scale = get_dpi_scale(self.root)
+        patch_geometry_managers(self.dpi_scale)
+
+        self.root.geometry(scale_geometry(scrgeometry, self.dpi_scale))#主窗口长宽
         self.root.resizable(scr_resizable, scr_resizable)
         
         self.picking = False
@@ -122,11 +131,11 @@ class AdvancedCoordinatePicker:
 
     def _create_gui(self):
         # 整体容器（分三部分）
-        main_container = ttk.Frame(self.root, padding="10")
+        main_container = ttk.Frame(self.root, padding=scale_pixels(10, self.dpi_scale))
         main_container.pack(fill=tk.BOTH, expand=True)
 
         # 1. 窗口选择区（使用与main一致的逻辑）
-        window_frame = ttk.LabelFrame(main_container, text="目标窗口选择", padding="10")
+        window_frame = ttk.LabelFrame(main_container, text="目标窗口选择", padding=scale_pixels(10, self.dpi_scale))
         window_frame.pack(fill=tk.X, pady=5)
 
         # 窗口选择下拉列表和按钮
@@ -143,12 +152,12 @@ class AdvancedCoordinatePicker:
         ttk.Button(window_frame, text="模糊匹配配置", command=self._edit_window_match_config).grid(row=0, column=4, padx=5, pady=5)
         
         # 窗口信息显示
-        info_frame = ttk.LabelFrame(window_frame, text="窗口信息", padding="10")
+        info_frame = ttk.LabelFrame(window_frame, text="窗口信息", padding=scale_pixels(10, self.dpi_scale))
         info_frame.grid(row=1, column=0, columnspan=5, sticky=tk.W+tk.E, padx=5, pady=5)
         ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=5)
 
         # 2. 信息显示区
-        info_frame = ttk.LabelFrame(main_container, text="坐标&窗口信息", padding="10")
+        info_frame = ttk.LabelFrame(main_container, text="坐标&窗口信息", padding=scale_pixels(10, self.dpi_scale))
         info_frame.pack(fill=tk.X, pady=5)
 
         # 信息行0：窗口内相对坐标（以窗口左上角为原点）
@@ -176,7 +185,7 @@ class AdvancedCoordinatePicker:
         ).grid(row=3, column=1, padx=5, pady=3, sticky=tk.W)
 
         # 3. 操作按钮区
-        btn_frame = ttk.Frame(main_container, padding="10")
+        btn_frame = ttk.Frame(main_container, padding=scale_pixels(10, self.dpi_scale))
         btn_frame.pack(fill=tk.X, pady=5)
 
         self.pick_btn = ttk.Button(
@@ -282,7 +291,7 @@ class AdvancedCoordinatePicker:
         # 新建临时窗口，输入模糊匹配关键词
         top = tk.Toplevel(self.root)
         top.title("模糊匹配配置")
-        top.geometry("400x200")
+        top.geometry(scale_geometry("400x200", self.dpi_scale))
         top.transient(self.root)
         top.grab_set()
         

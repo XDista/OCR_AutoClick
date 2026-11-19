@@ -6,6 +6,7 @@ import datetime
 import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from tkinter import font as tkfont
 import subprocess
 import sys
 from pynput import keyboard
@@ -36,6 +37,20 @@ from screenshot_capture import (
     validate_adb_environment,
 )
 from task_worker import worker, worker_ocr
+from dpi_scaling import (
+    get_dpi_scale,
+    scale_pixels,
+    scale_geometry,
+    patch_geometry_managers,
+)
+
+# 标签页内容底部补偿高度（96 DPI 基准，仅作字体度量失败时的兜底）。
+# ttk.LabelFrame 的标题绘制在边框上沿之上；在标签页内容底部补上“标题行高的一半
+# 再减 1px”，即可让最后一个分组框的下框线到标签页底边的间距，与第一个分组框
+# 上框线到标签栏下框线的间距一致。实际值按当前主题的标题字体动态计算，以适配
+# Windows 不同缩放比例。
+TAB_CONTENT_BOTTOM_EXTRA = 9
+
 
 class AutoClickGUI:
     def __init__(self, root, version="1.0.0"):
@@ -71,9 +86,14 @@ class AutoClickGUI:
                 return False
             return default
 
+        # DPI 缩放因子（相对 96 DPI 基准），用于把固定像素尺寸换算到当前缩放
+        self.dpi_scale = get_dpi_scale(self.root)
+        # 让 pack/grid 的 padx/pady/ipadx/ipady 自动按 DPI 等比缩放
+        patch_geometry_managers(self.dpi_scale)
+
         selfgeometry = _cfg_str("WindowConfig", "selfgeometry", "1200x600")
         selfxy_resizable = _cfg_int("WindowConfig", "selfxy_resizable", 1)
-        self.root.geometry(selfgeometry)
+        self.root.geometry(self._scale_geometry(selfgeometry))
         self.root.resizable(selfxy_resizable, selfxy_resizable)
 
         self.ocr_lang = _cfg_str("OCRConfig", "ocr_language", "ch_sim, en")
@@ -135,6 +155,14 @@ class AutoClickGUI:
         self._load_schedule_config()
         self._load_window_combobox()
         self._load_default_window_from_config()
+
+    def _px(self, value):
+        """按当前 DPI 缩放因子换算固定像素尺寸（支持单个值或元组）"""
+        return scale_pixels(value, self.dpi_scale)
+
+    def _scale_geometry(self, geometry):
+        """缩放 'WxH' 或 'WxH+X+Y' 形式 geometry 字符串中的宽高"""
+        return scale_geometry(geometry, self.dpi_scale)
 
     def _init_hotkey_listener(self):
         def on_key_press(key):
@@ -217,6 +245,98 @@ class AutoClickGUI:
             if combobox:
                 combobox.selection_clear()
         self.root.focus_set()
+        # 切换标签页后按该页内容重新贴合高度，保证每一页的首/末框上下间距一致
+        self.root.after_idle(self._fit_tab_page_height)
+
+    def _fit_tab_page_height(self):
+        """把标签页高度收紧到当前页内容所需高度，避免底部出现多余空白。"""
+        notebook = getattr(self, 'main_notebook', None)
+        if notebook is None:
+            return
+        notebook.fit_height(self._tab_bottom_compensation())
+
+    def _prepare_tab_page_layout(self):
+        """对齐各标签页内容高度后，再贴合标签页控件高度。"""
+        self._equalize_tab_page_heights()
+        self._fit_tab_page_height()
+
+    def _equalize_tab_page_heights(self):
+        """把各标签页内容的自然高度对齐到最大值，消除切换标签页时的像素跳动。
+
+        只调整分组框之间的内部间距，不改变首框上方的间距和末框下方的间距，
+        因此首框上框线与末框下框线到标签页上下边框线的对称关系不受影响。
+        """
+        notebook = getattr(self, 'main_notebook', None)
+        if notebook is None:
+            return
+        pages = notebook.pages()
+        if not pages:
+            return
+
+        # 首次调用时记录每个分组框原始的 pady（实际像素）；之后每次先还原再
+        # 重新分配，避免主题切换等重复调用时补偿量被累加。
+        for page in pages:
+            base = getattr(page, '_tab_base_paddings', None)
+            if base is None:
+                base = []
+                for child in page.winfo_children():
+                    try:
+                        info = child.pack_info()
+                    except tk.TclError:
+                        continue
+                    pady = info.get('pady', 0)
+                    if isinstance(pady, (tuple, list)):
+                        top, bottom = int(pady[0]), int(pady[-1])
+                    else:
+                        top = bottom = int(pady)
+                    base.append((child, top, bottom))
+                page._tab_base_paddings = base
+            for child, top, bottom in base:
+                try:
+                    page.tk.call('pack', 'configure', child._w, '-pady', (top, bottom))
+                except tk.TclError:
+                    pass
+
+        notebook.update_idletasks()
+        heights = [(page, page.winfo_reqheight()) for page in pages]
+        target = max(height for _, height in heights)
+
+        # 把高度差平均补到各分组框之间（最后一个框的下方留白保持不变）
+        for page, height in heights:
+            delta = target - height
+            if delta <= 0:
+                continue
+            base = page._tab_base_paddings
+            gaps = len(base) - 1
+            if gaps <= 0:
+                continue
+            for index, (child, top, bottom) in enumerate(base[:-1]):
+                add = delta // gaps + (1 if index < delta % gaps else 0)
+                if not add:
+                    continue
+                try:
+                    page.tk.call('pack', 'configure', child._w, '-pady',
+                                 (top, bottom + add))
+                except tk.TclError:
+                    pass
+
+        notebook.update_idletasks()
+
+    def _tab_bottom_compensation(self):
+        """计算标签页内容底部的额外留白，用于抵消分组框标题凸出的高度。
+
+        ttk.LabelFrame 的上边框线大致绘制在标题文字的垂直中心，因此第一个
+        分组框的“上框线”会比其布局上沿再低半个标题行高；分组框下边框线则
+        内缩 1px。底部补“半个行高 - 1”后，首框上框线与末框下框线到标签页
+        上下边框线的距离就完全相同，且会随字体/DPI 一起缩放。
+        """
+        try:
+            style = ttk.Style(self.root)
+            font_spec = style.lookup("TLabelframe.Label", "font") or "TkDefaultFont"
+            line_space = tkfont.Font(root=self.root, font=font_spec).metrics("linespace")
+            return max(0, int(round(line_space / 2.0)) - 1)
+        except Exception:
+            return self._px(TAB_CONTENT_BOTTOM_EXTRA)
 
     def on_adb_device_serial_change(self, event=None):
         try:
@@ -365,14 +485,16 @@ class AutoClickGUI:
     def _create_widgets(self):
         colors = get_current_colors()
         main_notebook = CustomNotebook(self.root, colors, on_tab_change=self._on_tab_changed)
+        self.main_notebook = main_notebook
         main_notebook.pack(fill=tk.BOTH, padx=10, pady=5)
-        main_notebook.config(height=320)
+        # 初始高度仅作为占位，构建完成后会按当前标签页内容的自然高度重新贴合
+        main_notebook.config(height=self._px(320))
         main_notebook.pack_propagate(False)
 
         window_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(window_frame, text="目标窗口")
 
-        select_frame = ttk.LabelFrame(window_frame, text="窗口选择", padding="5")
+        select_frame = ttk.LabelFrame(window_frame, text="窗口选择", padding=self._px(5))
         select_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(select_frame, text="选择目标窗口：").grid(row=0, column=0, padx=5, pady=3, sticky=tk.W)
@@ -391,13 +513,13 @@ class AutoClickGUI:
         ttk.Button(select_frame, text="刷新列表", command=self._load_window_combobox).grid(row=0, column=2, padx=5, pady=3)
         ttk.Button(select_frame, text="模糊匹配配置", command=self._edit_window_match_config).grid(row=0, column=3, padx=5, pady=3)
 
-        info_frame = ttk.LabelFrame(window_frame, text="窗口信息", padding="5")
+        info_frame = ttk.LabelFrame(window_frame, text="窗口信息", padding=self._px(5))
         info_frame.pack(fill=tk.X, padx=10, pady=2)
 
         self.window_info_var = tk.StringVar(value="未选择窗口 | 标题：- | 进程：- | 句柄：-")
         ttk.Label(info_frame, textvariable=self.window_info_var).pack(side=tk.LEFT, padx=5, pady=2)
 
-        schedule_frame = ttk.LabelFrame(window_frame, text="定时运行配置", padding="5")
+        schedule_frame = ttk.LabelFrame(window_frame, text="定时运行配置", padding=self._px(5))
         schedule_frame.pack(fill=tk.X, padx=10, pady=2)
 
         schedule_inner = ttk.Frame(schedule_frame)
@@ -441,7 +563,7 @@ class AutoClickGUI:
             command=self._save_schedule_config
         ).pack(side=tk.LEFT, padx=10, pady=3)
 
-        placeholder_frame = ttk.LabelFrame(window_frame, text="功能", padding="5")
+        placeholder_frame = ttk.LabelFrame(window_frame, text="功能", padding=self._px(5))
         placeholder_frame.pack(fill=tk.X, padx=10, pady=2)
 
         restart_btn = ttk.Button(
@@ -484,7 +606,7 @@ class AutoClickGUI:
         task_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(task_frame, text="图像模板匹配")
 
-        task_group_frame = ttk.LabelFrame(task_frame, text="模板匹配任务组", padding="5")
+        task_group_frame = ttk.LabelFrame(task_frame, text="模板匹配任务组", padding=self._px(5))
         task_group_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(task_group_frame, text="选择任务组：").pack(side=tk.LEFT, padx=5, pady=3)
@@ -498,7 +620,7 @@ class AutoClickGUI:
         ttk.Button(task_group_frame, text="编辑", command=self._edit_task_config).pack(side=tk.LEFT, padx=2, pady=3)
         ttk.Button(task_group_frame, text="坐标拾取", command=self._open_screenxy).pack(side=tk.LEFT, padx=2, pady=3)
 
-        match_step_frame = ttk.LabelFrame(task_frame, text="模板匹配配置", padding="15")
+        match_step_frame = ttk.LabelFrame(task_frame, text="模板匹配配置", padding=self._px(15))
         match_step_frame.pack(fill=tk.X, padx=10, pady=2)
 
         self.match_step_var = tk.StringVar()
@@ -524,7 +646,7 @@ class AutoClickGUI:
             foreground="#666666"
         ).grid(row=0, column=3, padx=5, pady=3, sticky=tk.W)
 
-        match_threshold_frame = ttk.LabelFrame(task_frame, text="相似度阈值", padding="10")
+        match_threshold_frame = ttk.LabelFrame(task_frame, text="相似度阈值", padding=self._px(10))
         match_threshold_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(match_threshold_frame, text="匹配相似度：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
@@ -534,7 +656,7 @@ class AutoClickGUI:
             from_=0.5, to=1.0,
             variable=self.match_threshold_var,
             orient=tk.HORIZONTAL,
-            length=150
+            length=self._px(150)
         )
         match_threshold_scale.grid(row=0, column=1, padx=2, pady=3, sticky="w")
         self.match_threshold_label = ttk.Label(match_threshold_frame, text=f"{self.match_threshold:.2f}", width=4)
@@ -562,7 +684,7 @@ class AutoClickGUI:
         ocr_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(ocr_frame, text="OCR")
 
-        ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding="5")
+        ocr_task_frame = ttk.LabelFrame(ocr_frame, text="OCR 任务组", padding=self._px(5))
         ocr_task_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(ocr_task_frame, text="选择任务组：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
@@ -623,7 +745,7 @@ class AutoClickGUI:
         ttk.Button(ocr_task_frame, text="检测GPU", command=self._detect_gpu).grid(
             row=0, column=5, padx=2, pady=3, sticky="w")
 
-        ocr_param_frame = ttk.LabelFrame(ocr_frame, text="识别参数", padding="20")
+        ocr_param_frame = ttk.LabelFrame(ocr_frame, text="识别参数", padding=self._px(20))
         ocr_param_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(ocr_param_frame, text="识别语言：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
@@ -653,7 +775,7 @@ class AutoClickGUI:
             from_=0.3, to=1.0,
             variable=self.ocr_conf_var,
             orient=tk.HORIZONTAL,
-            length=100
+            length=self._px(100)
         )
         ocr_conf_scale.grid(row=0, column=3, padx=2, pady=3, sticky="w")
         self.ocr_conf_label = ttk.Label(ocr_param_frame, text=f"{self.ocr_conf:.2f}", width=4)
@@ -778,7 +900,7 @@ class AutoClickGUI:
         #                 variable=self.ocr_use_cls_var, command=_on_use_cls_change
         #                 ).grid(row=1, column=2, padx=(15, 2), pady=3, sticky="w")
 
-        ocr_pre_frame = ttk.LabelFrame(ocr_frame, text="图像预处理", padding="10")
+        ocr_pre_frame = ttk.LabelFrame(ocr_frame, text="图像预处理", padding=self._px(10))
         ocr_pre_frame.pack(fill=tk.X, padx=10, pady=2)
 
         self.ocr_gray_var = tk.BooleanVar(value=self.ocr_gray)
@@ -835,7 +957,7 @@ class AutoClickGUI:
         style.configure("Gray.TLabel", foreground="#888888")
         style.configure("Normal.TLabel", foreground="#000000")
 
-        adb_basic_frame = ttk.LabelFrame(adb_frame, text="ADB基本设置", padding="5")
+        adb_basic_frame = ttk.LabelFrame(adb_frame, text="ADB基本设置", padding=self._px(5))
         adb_basic_frame.pack(fill=tk.X, padx=10, pady=2)
 
         current_enabled_text = "是" if adb_enabled == "1" else "否"
@@ -864,7 +986,7 @@ class AutoClickGUI:
         ttk.Button(adb_basic_frame, text="ADB截图工具", command=self._open_adb_screenshot).grid(
             row=0, column=4, padx=15, pady=3, sticky="w")
 
-        adb_path_frame = ttk.LabelFrame(adb_frame, text="自定义ADB路径", padding="5")
+        adb_path_frame = ttk.LabelFrame(adb_frame, text="自定义ADB路径", padding=self._px(5))
         adb_path_frame.pack(fill=tk.X, padx=10, pady=2)
 
         adb_path_label = ttk.Label(adb_path_frame, text="路径：")
@@ -904,7 +1026,7 @@ class AutoClickGUI:
         )
         tip_label.grid(row=1, column=0, columnspan=4, padx=5, pady=2, sticky="w")
 
-        adb_cmd_frame = ttk.LabelFrame(adb_frame, text="ADB命令执行", padding="8")
+        adb_cmd_frame = ttk.LabelFrame(adb_frame, text="ADB命令执行", padding=self._px(8))
         adb_cmd_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(adb_cmd_frame, text="命令：").grid(
@@ -989,7 +1111,7 @@ class AutoClickGUI:
         other_frame = ttk.Frame(main_notebook.content)
         main_notebook.add(other_frame, text="其他")
 
-        theme_frame = ttk.LabelFrame(other_frame, text="主题配置", padding="5")
+        theme_frame = ttk.LabelFrame(other_frame, text="主题配置", padding=self._px(5))
         theme_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(theme_frame, text="选择主题：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
@@ -1019,13 +1141,14 @@ class AutoClickGUI:
                 save_theme_config(selected_id, MAIN_CONFIG_PATH)
                 apply_theme_to_log(self.log_text, selected_id)
                 self.log(f"✅ 主题已切换为：{selected_display}")
+                self.root.after_idle(self._prepare_tab_page_layout)
             else:
                 self.log(f"⚠️ 主题切换失败：{selected_display}")
 
         ttk.Button(theme_frame, text="应用主题", command=apply_selected_theme).grid(row=0, column=2, padx=5, pady=3, sticky="w")
         ttk.Label(theme_frame, text="（切换后自动保存，重启后生效）", foreground="#666666").grid(row=0, column=3, padx=5, pady=3, sticky="w")
 
-        empty_frame = ttk.LabelFrame(other_frame, text="Alas配置", padding="5")
+        empty_frame = ttk.LabelFrame(other_frame, text="Alas配置", padding=self._px(5))
         empty_frame.pack(fill=tk.X, padx=10, pady=2)
 
         if "GENERAL" not in main_config:
@@ -1068,7 +1191,7 @@ class AutoClickGUI:
         main_config = configparser.ConfigParser()
         main_config.read(MAIN_CONFIG_PATH, encoding="utf-8")
 
-        config_frame = ttk.LabelFrame(other_frame, text="点击配置", padding="10")
+        config_frame = ttk.LabelFrame(other_frame, text="点击配置", padding=self._px(10))
         config_frame.pack(fill=tk.X, padx=10, pady=2)
 
         ttk.Label(config_frame, text="点击模式：").grid(row=0, column=0, padx=5, pady=3, sticky="w")
@@ -1117,7 +1240,7 @@ class AutoClickGUI:
 
         ttk.Button(control_frame, text="清除日志", command=self._clear_log).pack(side=tk.RIGHT, padx=5)
 
-        log_frame = ttk.LabelFrame(self.root, text="运行日志", padding="10")
+        log_frame = ttk.LabelFrame(self.root, text="运行日志", padding=self._px(10))
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         log_bg, log_fg = get_log_colors()
@@ -1144,6 +1267,10 @@ class AutoClickGUI:
             self.root,
             get_theme_id_by_name(self.theme_var.get()) if self.theme_var.get() else "light"
         ))
+
+        # 等布局与主题字体应用完成后再对齐各页内容高度并贴合标签页高度
+        self.root.after_idle(self._prepare_tab_page_layout)
+        self.root.after(300, self._prepare_tab_page_layout)
 
     def _open_screenxy(self):
         try:
@@ -1386,7 +1513,7 @@ class AutoClickGUI:
 
         top = tk.Toplevel(self.root)
         top.title("模糊匹配配置")
-        top.geometry("300x270")
+        top.geometry(self._scale_geometry("300x270"))
         top.transient(self.root)
         top.grab_set()
 
@@ -1485,16 +1612,18 @@ class AutoClickGUI:
         new_win = tk.Toplevel(self.root)
         new_win.title("新建任务组")
 
-        new_win.geometry("350x180")
-        new_win.minsize(300, 150)
+        win_w = self._px(350)
+        win_h = self._px(180)
+        new_win.geometry(f"{win_w}x{win_h}")
+        new_win.minsize(self._px(300), self._px(150))
         new_win.resizable(True, True)
 
         new_win.update_idletasks()
         screen_width = new_win.winfo_screenwidth()
         screen_height = new_win.winfo_screenheight()
-        x = (screen_width - 350) // 2
-        y = (screen_height - 180) // 2
-        new_win.geometry(f"350x180+{x}+{y}")
+        x = (screen_width - win_w) // 2
+        y = (screen_height - win_h) // 2
+        new_win.geometry(f"{win_w}x{win_h}+{x}+{y}")
 
         new_win.columnconfigure(0, weight=1)
 
@@ -1553,16 +1682,18 @@ class AutoClickGUI:
         new_win = tk.Toplevel(self.root)
         new_win.title("新建OCR任务组")
 
-        new_win.geometry("350x180")
-        new_win.minsize(300, 150)
+        win_w = self._px(350)
+        win_h = self._px(180)
+        new_win.geometry(f"{win_w}x{win_h}")
+        new_win.minsize(self._px(300), self._px(150))
         new_win.resizable(True, True)
 
         new_win.update_idletasks()
         screen_width = new_win.winfo_screenwidth()
         screen_height = new_win.winfo_screenheight()
-        x = (screen_width - 350) // 2
-        y = (screen_height - 180) // 2
-        new_win.geometry(f"350x180+{x}+{y}")
+        x = (screen_width - win_w) // 2
+        y = (screen_height - win_h) // 2
+        new_win.geometry(f"{win_w}x{win_h}+{x}+{y}")
 
         new_win.columnconfigure(0, weight=1)
 
@@ -1933,18 +2064,18 @@ class AutoClickGUI:
     def _show_about_dialog(self):
         about_window = tk.Toplevel(self.root)
         about_window.title("关于")
-        about_window.geometry("500x400")
+        about_window.geometry(self._scale_geometry("500x400"))
         about_window.resizable(False, False)
 
-        window_width = 480
-        window_height = 390
+        window_width = self._px(480)
+        window_height = self._px(390)
         screen_width = about_window.winfo_screenwidth()
         screen_height = about_window.winfo_screenheight()
         x = (screen_width // 2) - (window_width // 2)
         y = (screen_height // 2) - (window_height // 2)
         about_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
-        content_frame = ttk.Frame(about_window, padding=20)
+        content_frame = ttk.Frame(about_window, padding=self._px(20))
         content_frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(content_frame, text="OCR自动点击工具", font=("微软雅黑", 16, "bold")).pack(pady=10)
