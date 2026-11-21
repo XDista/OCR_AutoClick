@@ -612,11 +612,23 @@ def worker_ocr(app):
                                 matched_target = None
                                 matched_target_idx = -1
 
+                                ignore_occlusion = task.get("ignore_occlusion", False)
+
                                 # —— 预处理 + OCR 只做一次（所有 target 共享）——
-                                processed_full = ocr_engine._preprocess_image(screenshot)
-                                ocr_full_results = ocr_engine.recognize_preprocessed(processed_full)
+                                processed_full = None
+                                ocr_full_results = []
+
+                                if not ignore_occlusion:
+                                    processed_full = ocr_engine._preprocess_image(screenshot)
+                                    ocr_full_results = ocr_engine.recognize_preprocessed(processed_full)
 
                                 for target_idx, target in enumerate(targets):
+                                    if ignore_occlusion:
+                                        matched_target = target
+                                        matched_target_idx = target_idx
+                                        app.log(f"✅ 任务[{task_name}]：配置了忽略遮挡，直接执行第一个分支")
+                                        break
+
                                     target_text_config = target.get("text", "")
                                     if not target_text_config:
                                         app.log(f"⚠️ 任务[{task_name}]目标{target_idx}：text为空，跳过")

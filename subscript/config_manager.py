@@ -157,6 +157,7 @@ def init_ocr_task_config(task_group_name):
     task_config_path = os.path.join(TASK_OCR_DIR, f"{task_group_name}.json")
     default_config = {
         "TASK1": {
+            "ignore_occlusion": False,
             "ocr_settings": {
                 "language": None,
                 "confidence_threshold": None,
@@ -178,6 +179,7 @@ def init_ocr_task_config(task_group_name):
             ],
         },
         "TASK2": {
+            "ignore_occlusion": False,
             "ocr_settings": {},
             "targets": [
                 {

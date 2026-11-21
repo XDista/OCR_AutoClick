@@ -1,155 +1,311 @@
-使用F9+F10控制任务组的 运行/停止
+============================================================
+OCR_AutoClick 新版任务组（JSON）说明
+============================================================
 
-新版任务组换用json格式的文件
+使用 F9 开始 / F10 停止 控制任务组的 运行/停止。
+
+新版任务组使用 JSON 格式文件，存放于 tasks 目录下，
+文件名 = config.ini 中 [TemplateMatchConfig] current_task_group 的值（不含 .json 后缀）。
+
+------------------------------------------------------------
+一、整体结构
+------------------------------------------------------------
+
+顶层是一个 JSON 对象（字典），每个“键”对应一个子任务，例如：
 
 {
-    "TASK1": {							#对应第 1 个子任务
-        "ignore_occlusion": false,			#忽略匹配度，直接视为匹配成功
-        "ref_images": [					#支持不同的分支，对应不同的条件和动作列表，默认第一个匹配上就不再关注后面的分支
-            {								#第一个分支
-                "image": "noworking.png",		#识别的参考图为refs文件夹下的button.png,不区分大小写，支持使用子文件夹
-                "similarity_threshold": 0.9,		#忽略匹配度，直接视为匹配成功
-                "match_times": 2,				#匹配阈值次数，连续匹配成功次数大于这个值才视为匹配成功，每个分支独立
-                "run_on_match": true,			#正/反向匹配逻辑开关：true或不添加这一行代码为 正向匹配（识别到这个图片就视为匹配成功），false为 反向匹配（没识别到才视为成功）
-                "actions": [					#动作列表
-                    {
-                        "type": "click",			#点击相对坐标x=100，y=200的位置
-                        "params": [
-                            100,
-                            200
-                        ]
-                    },
-                    {
-                        "type": "sleep",			#运行到这里暂停1.0秒
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "shutdown",		#36000秒后关闭计算机；支持完整cmd的shutdown指令，无参数则默认延迟60秒关机
-                        "params": [
-                            "shutdown /s /t 36000"
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "shutdown",
-                        "params": [
-                            "shutdown /a"
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "taskcall",		#通过系统通知发送消息：“Hello world”
-                        "params": [
-                            "Hello World"
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "swipe",		# 1.5秒内从(50,300)拖动到(450,300)	
-                        "params": [
-                            50,
-                            300,
-                            450,
-                            300,
-                            1.5
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "press",		#模拟键盘按下win键，只有一个key时只按下对应key，多个key时为组合键
-                        "params": [
-                            "win"
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "press",
-                        "params": [
-                            "win"
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "adbcall",		#支持完整的原生adb命令，要先确认adb环境
-                        "params": [
-                            "adb version"
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            1.0
-                        ]
-                    },
-                    {
-                        "type": "serial_adbcall",	#支持完整adb命令，支持从config读取gui中填入的serial
-                        "params": [
-                            "adb shell echo \"ADB test success\""
-                        ]
-                    },
-                    {
-                        "type": "sleep",
-                        "params": [
-                            2.0
-                        ]
-                    },
-                    {
-                        "type": "goto_task",	#跳转至对应序号的任务
-                        "params": [
-                            3
-                        ]
-                    }
-                ]
-            },
-            {							#第二个分支
-                "image": ["or","target1.png","target2.png","target3.png"],	#多图逻辑处理：and（与）模式下所有输入都为真（匹配）时结果为真，or（或）模式下至少一个输入为真（匹配）时结果为真
+    "TASK1": { ... },      # 第 1 个子任务
+    "TASK2": { ... },      # 第 2 个子任务
+    ...
+}
+
+重要规则：
+1. 键名以 “_” 开头的键会被忽略，可用于在 JSON 里写注释（JSON 本身不支持注释），例如：
+   "_说明": "这是给人类看的备注，程序会跳过"
+
+2. 只有「值为字典 且 含有 ref_images 字段」的键才会被当作子任务，
+   子任务按照字典中键的先后顺序依次执行。
+
+3. 每个子任务可包含的字段：
+   - ignore_occlusion : 布尔，缺省 false
+   - ref_images       : 数组，每个元素是一个“分支”
+
+------------------------------------------------------------
+二、子任务字段详解
+------------------------------------------------------------
+
+[ignore_occlusion]  （布尔，缺省 false）
+  - false：正常做图像匹配，匹配成功才执行动作。
+  - true ：完全跳过匹配判断，直接执行 ref_images 中的「第一个分支」的动作。
+           适用于“无论屏幕是什么都直接执行”的场景。
+
+[ref_images]  （数组，非空）
+  - 每个元素是一个分支，字段如下：
+
+    image                  （字符串 或 数组）
+       单个参考图（字符串）：
+           "image": "noworking.png"
+       多图逻辑（数组，首元素为逻辑运算符 and / or）：
+           "image": ["or", "target1.png", "target2.png", "target3.png"]
+
+       参考图路径相对于 refs 文件夹解析（即 refs/ 下的相对路径），
+       支持使用子文件夹，例如 "subdir/button.png"。
+
+    similarity_threshold   （浮点 0~1，可选）
+       该分支的匹配阈值。缺省时回退到全局阈值：
+       config.ini 中 [TemplateMatchConfig] match_threshold（默认 0.75）。
+       相似度 >= 该阈值 视为匹配成功。
+
+    match_times            （整数 >= 1，可选，缺省 1）
+       连续满足次数阈值：连续「满足匹配条件」的次数达到（>=）该值才选中此分支。
+       每个分支的连续计数相互独立；一旦某次不满足，该分支计数清零。
+
+    run_on_match           （布尔，可选，缺省 true）
+       匹配逻辑方向（非门）：
+         true  ：正向匹配 —— 识别到（匹配成功）记为满足。
+         false ：反向匹配 —— 识别不到（匹配失败）才记为满足。
+
+    actions                （数组，可选）
+       该分支匹配成功后要依次执行的动作列表，详见“四、动作详解”。
+
+------------------------------------------------------------
+三、匹配与分支选择逻辑
+------------------------------------------------------------
+
+1. 模板匹配为“多尺度”匹配：参考图会被从 0.1 倍到 4.0 倍按步长缩放后逐一匹配，
+   取所有尺度中的最高相似度。
+   - 缩放步长由 config.ini [TemplateMatchConfig] template_match_step 控制（默认 0.05，
+     实际被限制在 0.001~0.5 之间）。步长越小越精确但越慢。
+
+2. 每个识别周期（频率 = config.ini [GENERAL] recognition_frequency）会对当前任务做一次判断：
+   - 从第一个分支开始，按顺序依次计算每个分支的“是否满足 + 连续次数”。
+   - 某分支连续满足次数达到其 match_times 时，立即选中该分支并停止检查后续分支。
+     （因此当多个分支同时达到条件时，排在前面的分支优先。）
+   - 若所有分支都未达到条件，本周期不执行动作，下个周期继续检查（计数会保留累计）。
+
+3. 选中分支后，顺序执行其 actions 列表中的每个动作。
+   - 执行完所有动作后，若没有跳转（goto_task）也没有停止（stop），自动进入下一个子任务。
+   - 执行完一个分支后，所有分支的连续计数会清零。
+
+------------------------------------------------------------
+四、动作详解（actions）
+------------------------------------------------------------
+
+每个动作是一个 JSON 对象，必须包含两个字段：
+    "type"   : 动作类型（字符串）
+    "params" : 参数数组（数组，内容随动作类型而定）
+
+动作类型共 11 种：click / sleep / press / goto_task / taskcall / swipe / stop /
+                 adbcall / serial_adbcall / cmd_call / shutdown
+
+------------------------------------------------
+(1) click —— 点击
+------------------------------------------------
+    "type": "click",
+    "params": [100, 200]
+
+  - params[0]、params[1]：点击坐标 x、y（相对于目标窗口“客户区”的坐标）。
+  - 只支持一次点击；参数多余 2 个时仅取前两个。
+  - 实际点击方式取决于 config.ini [GENERAL] click_mode：
+      sendmessage ：通过 Windows 消息（WM_LBUTTONDOWN/UP）点击，窗口可后台、可不激活。
+      pyautogui   ：真实鼠标移动到屏幕坐标后点击，会把窗口置前。
+
+------------------------------------------------
+(2) sleep —— 等待
+------------------------------------------------
+    "type": "sleep",
+    "params": [1.0]
+
+  - params[0]：等待秒数（浮点）。
+  - 等待期间可被“停止”打断（用户按 F10 或 stop 动作触发时提前结束）。
+
+------------------------------------------------
+(3) press —— 模拟按键
+------------------------------------------------
+    "type": "press",
+    "params": ["win"]
+
+    "type": "press",
+    "params": ["ctrl", "a"]        # 多个键时为组合键
+
+  - 只有一个键：按下并松开该键。
+  - 多个键：按组合键处理。
+
+  - 两种点击模式下的行为不同，务必注意：
+    A) click_mode = sendmessage（默认）时，走内部“键位映射表”，仅支持以下按键：
+       enter/return, tab, space, backspace, delete,
+       ctrl, shift, alt, esc, capslock,
+       f1~f12, up/down/left/right, home, end, pageup, pagedown, insert,
+       字母 a~z，数字 0~9。
+       ⚠ 不支持的键（例如 win）会直接报错跳过。
+       多个键时按键按顺序逐个“按下+抬起”发送（并非真正意义上的同时按下）。
+    B) click_mode = pyautogui 时，调用 pyautogui，支持其完整键名
+       （含 win、winleft、winright 等），多个键使用 pyautogui.hotkey 组合。
+
+------------------------------------------------
+(4) goto_task —— 跳转任务
+------------------------------------------------
+    "type": "goto_task",
+    "params": [3]
+
+  - params[0]：要跳转到的子任务“序号”（从 1 开始，即 TASK 的顺序号）。
+  - 跳转后本分支剩余的动作不再执行，直接进入目标子任务。
+  - 序号会自动限制在合法范围 [1, 任务总数]。
+  - 建议把 goto_task 放在动作列表的“最后一个”。
+
+------------------------------------------------
+(5) taskcall —— 发送系统通知
+------------------------------------------------
+    "type": "taskcall",
+    "params": ["Hello World"]
+
+  - 通过 Windows 系统通知弹出一条消息，标题固定为 “TaskCall：”。
+  - 多个参数会用英文逗号拼接：params: ["a","b"]  →  消息内容 "a,b"。
+
+------------------------------------------------
+(6) swipe —— 拖动 / 滑动
+------------------------------------------------
+    "type": "swipe",
+    "params": [50, 300, 450, 300, 1.5]
+
+  - params 依次为：x1, y1, x2, y2, t
+      从窗口客户区坐标 (x1, y1) 拖动到 (x2, y2)，耗时 t 秒。
+  - sendmessage 模式：用鼠标移动消息分步模拟拖动（步长 0.05 秒）。
+  - pyautogui 模式：真实鼠标按住并移动，会把窗口置前。
+
+------------------------------------------------
+(7) stop —— 停止任务组
+------------------------------------------------
+    "type": "stop",
+    "params": []
+
+  - 立即停止整个任务组（相当于程序内部触发停止）。
+
+------------------------------------------------
+(8) adbcall —— 执行原生 ADB 命令
+------------------------------------------------
+    "type": "adbcall",
+    "params": ["adb version"]
+
+  - params[0]：完整的 ADB 命令，必须以 “adb ” 开头（否则报错）。
+  - 会自动把开头的 “adb ” 替换为实际 adb.exe 完整路径后再执行；
+    仅当 config.ini [ADBConfig] adb_usage_mode = "3"（系统环境变量）时，
+    才直接使用命令里的 “adb” 字面量。
+  - 前置要求：ADB 环境可用（可用 GUI 中的“验证ADB环境”检查）。
+  - 超时时间 30 秒。
+
+------------------------------------------------
+(9) serial_adbcall —— 带设备 Serial 的 ADB 命令
+------------------------------------------------
+    "type": "serial_adbcall",
+    "params": ["adb shell echo \"ADB test success\""]
+
+  - 与 adbcall 类似，但会自动注入 GUI/config 中填写的设备 Serial：
+    若 config.ini [ADBConfig] adb_device_serial 非空，且命令中不含 “-s ” 时，
+    会在 “adb ” 后自动插入 “-s <serial> ”。
+  - 命令必须以 “adb ” 开头；超时 30 秒。
+
+------------------------------------------------
+(10) cmd_call —— 执行 CMD 命令
+------------------------------------------------
+    "type": "cmd_call",
+    "params": ["python change_serial/change_serial_force.py -b -p 1 -y"]
+
+  - params[0]：完整的 CMD 命令。
+  - 通过 shell 执行，超时 60 秒。
+  - 可用它代替 sleep（例如执行 “shutdown /a” 之类命令）。
+
+------------------------------------------------
+(11) shutdown —— 关机
+------------------------------------------------
+    "type": "shutdown",
+    "params": ["shutdown /s /t 36000"]
+
+    "type": "shutdown",
+    "params": []                    # 无参数时默认执行 shutdown /s /t 60
+
+  - params[0]：完整的 shutdown 命令（支持任意合法 shutdown 参数）。
+  - 无参数时默认延迟 60 秒关机（shutdown /s /t 60）。
+  - 取消已计划的关机可用 cmd_call 执行 “shutdown /a”。
+
+------------------------------------------------------------
+五、多图逻辑与 run_on_match 组合出的四种逻辑门
+------------------------------------------------------------
+
+image 配置                run_on_match    组合效果    等效逻辑门    触发条件
+------------------------  --------------  ----------  ------------  -------------------------------
+["and", "A", "B"]         true            AND         AND门         A、B 都匹配成功
+["and", "A", "B"]         false           NAND        NAND门        不是 A、B 都匹配（至少一个不匹配）
+["or",  "A", "B"]         true            OR          OR门          A、B 任一匹配成功
+["or",  "A", "B"]         false           NOR         NOR门         A、B 都不匹配
+
+1. AND门（与门）：
+   { "image": ["and", "button_ok.png", "button_submit.png"], "run_on_match": true }
+   触发条件：所有图像都匹配成功。
+   场景：需要多个按钮同时出现才执行操作。
+
+2. NAND门（与非门）：
+   { "image": ["and", "loading.png", "processing.png"], "run_on_match": false }
+   触发条件：不是所有图像都匹配（至少一个不匹配）。
+   场景：等待加载状态消失后执行操作。
+
+3. OR门（或门）：
+   { "image": ["or", "button_yes.png", "button_ok.png"], "run_on_match": true }
+   触发条件：任一图像匹配成功。
+   场景：多个相似按钮，匹配到任意一个即可。
+
+4. NOR门（或非门）：
+   { "image": ["or", "error.png", "warning.png"], "run_on_match": false }
+   触发条件：所有图像都不匹配。
+   场景：确认没有任何错误状态后执行操作。
+
+------------------------------------------------------------
+六、完整示例（合法 JSON，不含注释）
+------------------------------------------------------------
+
+{
+    "TASK1": {
+        "ignore_occlusion": false,
+        "ref_images": [
+            {
+                "image": "noworking.png",
                 "similarity_threshold": 0.9,
                 "match_times": 2,
-                "run_on_match": true,		#子任务非门，true为正向逻辑匹配，false为反向逻辑匹配
+                "run_on_match": true,
                 "actions": [
-                    {
-                        "type": "taskcall",
-                        "params": [
-                            "Hello World"
-                        ]
-                    }
+                    {"type": "click", "params": [100, 200]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "shutdown", "params": ["shutdown /s /t 36000"]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "cmd_call", "params": ["shutdown /a"]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "taskcall", "params": ["Hello World"]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "swipe", "params": [50, 300, 450, 300, 1.5]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "press", "params": ["win"]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "press", "params": ["ctrl", "a"]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "adbcall", "params": ["adb version"]},
+                    {"type": "sleep", "params": [1.0]},
+                    {"type": "serial_adbcall", "params": ["adb shell echo \"ADB test success\""]},
+                    {"type": "sleep", "params": [2.0]},
+                    {"type": "goto_task", "params": [3]}
+                ]
+            },
+            {
+                "image": ["or", "target1.png", "target2.png", "target3.png"],
+                "similarity_threshold": 0.9,
+                "match_times": 2,
+                "run_on_match": true,
+                "actions": [
+                    {"type": "taskcall", "params": ["Hello World"]}
                 ]
             }
         ]
     },
-    "TASK2": {					#第二个子任务，在这里被前文goto_task3的动作跳过了
+    "TASK2": {
         "ignore_occlusion": false,
         "ref_images": [
             {
@@ -157,10 +313,7 @@
                 "similarity_threshold": 0.9,
                 "match_times": 1,
                 "actions": [
-                    {
-                        "type": "stop",
-                        "params": []
-                    }
+                    {"type": "stop", "params": []}
                 ]
             }
         ]
@@ -172,66 +325,13 @@
                 "similarity_threshold": 0.9,
                 "match_times": 1,
                 "actions": [
-                    {
-                        "type": "stop",	#停止任务组
-                        "params": []
-                    }
+                    {"type": "stop", "params": []}
                 ]
             }
         ]
     }
 }
 
-
-/*
-
-脚本中的 and、or 和 run_on_match 可以组合出以下 四种基本逻辑门：
-
-组合逻辑表
-image配置		run_on_match	组合效果		等效逻辑门	触发条件
-
-["and", "A", "B"]	true				AND		AND门		A和B都匹配成功
-["and", "A", "B"]	false			NAND		NAND门		不是A和B都匹配（至少一个不匹配）
-["or", "A", "B"]	true				OR			OR门		A或B匹配成功
-["or", "A", "B"]	false			NOR		NOR门		A和B都不匹配
-详细解释
-1. AND门（与门）
-
-{
-  "image": ["and", "button_ok.png", "button_submit.png"],
-  "run_on_match": true
-}
-触发条件：所有图像都匹配成功
-场景：需要多个按钮同时出现才执行操作
-
-2. NAND门（与非门）
-
-json
-{
-  "image": ["and", "loading.png", "processing.png"],
-  "run_on_match": false
-}
-触发条件：不是所有图像都匹配（至少有一个不匹配）
-场景：等待加载状态消失后执行操作
-
-3. OR门（或门）
-
-json
-{
-  "image": ["or", "button_yes.png", "button_ok.png"],
-  "run_on_match": true
-}
-触发条件：任一图像匹配成功
-场景：多个相似按钮，匹配到任意一个即可
-
-4. NOR门（或非门）
-
-json
-{
-  "image": ["or", "error.png", "warning.png"],
-  "run_on_match": false
-}
-触发条件：所有图像都不匹配
-场景：确认没有任何错误状态后执行操作
-
-*/
+============================================================
+（完）
+============================================================
