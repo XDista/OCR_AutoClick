@@ -14,6 +14,7 @@ from pynput.keyboard import Key
 from theme.theme_manager import (
     apply_theme,
     apply_theme_to_log,
+    apply_theme_to_log_scrollbar,
     get_current_colors,
     get_log_colors,
     get_theme_names,
@@ -1140,6 +1141,7 @@ class AutoClickGUI:
                 apply_theme(self.root, selected_id)
                 save_theme_config(selected_id, MAIN_CONFIG_PATH)
                 apply_theme_to_log(self.log_text, selected_id)
+                apply_theme_to_log_scrollbar(self.log_scrollbar, selected_id)
                 self.log(f"✅ 主题已切换为：{selected_display}")
                 self.root.after_idle(self._prepare_tab_page_layout)
             else:
@@ -1249,11 +1251,12 @@ class AutoClickGUI:
 
         self.log_text = tk.Text(log_text_frame, wrap=tk.WORD, state=tk.DISABLED,
                                 bg=log_bg, fg=log_fg, height=10)
-        log_scrollbar = ttk.Scrollbar(log_text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=log_scrollbar.set)
+        self.log_scrollbar = tk.Scrollbar(log_text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=self.log_scrollbar.set)
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         apply_theme_to_log(self.log_text)
+        apply_theme_to_log_scrollbar(self.log_scrollbar)
 
         self.root.after(200, lambda: apply_theme(
             self.root,

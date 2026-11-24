@@ -703,6 +703,23 @@ def apply_theme_to_log(log_text_widget, theme_id=None):
     log_text_widget.config(bg=colors["log_bg"], fg=colors["log_fg"])
 
 
+def apply_theme_to_log_scrollbar(scrollbar_widget, theme_id=None):
+    """对日志区滚动条应用主题颜色（经典 tk.Scrollbar，深色模式下稳定可见）"""
+    if theme_id is None or theme_id not in THEMES:
+        theme_id = _current_theme_id
+    colors = THEMES[theme_id]["colors"]
+    scrollbar_widget.config(
+        bg=colors["scrollbar_thumb"],
+        troughcolor=colors["scrollbar_bg"],
+        activebackground=colors["scrollbar_thumb"],
+        highlightbackground=colors["scrollbar_bg"],
+        highlightcolor=colors["scrollbar_bg"],
+        highlightthickness=0,
+        relief=tk.FLAT,
+        bd=0,
+    )
+
+
 def get_current_colors():
     """获取当前主题的颜色字典"""
     theme_id = _current_theme_id if _current_theme_id in THEMES else DEFAULT_THEME
